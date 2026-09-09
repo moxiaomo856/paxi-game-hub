@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paxi Game Hub</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <button id="connectBtn">连接钱包</button>
+            <span id="addressDisplay"></span>
+            <span id="balanceDisplay">余额: 0</span>
+        </header>
+        <nav id="gameNav">
+            <button data-game="guess">猜数字</button>
+            <!-- 未来游戏: poker, chess, snake -->
+        </nav>
+        <main id="gameArea">
+            <p>选择一个游戏开始</p>
+        </main>
+    </div>
+    <script src="https://mainnet-api.paxinet.io/resources/js/paxi-cosmjs.umd.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
