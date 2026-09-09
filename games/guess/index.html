@@ -2,25 +2,324 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>猜数字 - Paxi Game Hub</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>猜数字 · Paxi Game Hub</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div id="app">
-        <header>
-            <button id="connectBtn">连接钱包</button>
-            <span id="addressDisplay"></span>
-            <span id="balanceDisplay">余额: 0</span>
-        </header>
-        <nav id="gameNav">
-            <button data-game="guess">猜数字</button>
-        </nav>
-        <main id="gameArea">
-            <p>选择一个游戏开始</p>
-        </main>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🎯 <span>猜数字</span></h1>
+            <button class="btn-wallet" id="walletBtn" onclick="connectWallet()">🔗 连接钱包</button>
+        </div>
+
+        <!-- 钱包/余额 -->
+        <div class="wallet-bar">
+            <span class="addr" id="walletAddr">未连接</span>
+            <span class="bal">PAXI: <span class="num" id="paxiBalance">0</span></span>
+            <span class="bal">TKCC: <span class="num" id="tkccBalance">0</span></span>
+        </div>
+
+        <!-- 游戏区 -->
+        <div class="game-area">
+            <h3>🎲 猜 0-99 的数字</h3>
+            <p style="color:#8a7a6a;font-size:12px;">猜对 = 下注 × 10 倍返还</p>
+            
+            <div class="bet-row">
+                <label>下注金额 (TKCC):</label>
+                <input type="number" id="betAmount" value="50000" min="20000" max="1000000">
+            </div>
+
+            <div class="guess-row">
+                <input type="number" id="guessNumber" value="42" min="0" max="99" readonly>
+                <div class="num-pad">
+                    <button onclick="changeGuess(-10)">-10</button>
+                    <button onclick="changeGuess(-1)">-1</button>
+                    <button onclick="changeGuess(1)">+1</button>
+                    <button onclick="changeGuess(10)">+10</button>
+                </div>
+            </div>
+
+            <button class="btn-gold" style="width:100%;padding:14px;font-size:16px;margin-top:10px;" onclick="playGuess()">🎯 下注猜数字</button>
+
+            <div id="resultArea" class="result-area" style="margin-top:14px;"></div>
+        </div>
     </div>
+
+    <!-- Paxi 官方 CosmJS（DApp 指南 3.1） -->
     <script src="https://mainnet-api.paxinet.io/resources/js/paxi-cosmjs.umd.js"></script>
-    <script type="module" src="js/app.js"></script>
+    <!-- 兼容层：补充 PaxiCosmJS 缺失的 protobuf 编码器（和三国卡牌一样） -->
+    <script src="compat.js"></script>
+
+    <script>
+    // ============================================================
+    // 📌 配置（从 dapp/config.js 同步）
+    // ============================================================
+    const PAXI_RPC    = 'https://mainnet-rpc.paxinet.io';
+    const PAXI_LCD    = 'https://mainnet-lcd.paxinet.io';
+    const PAXI_DENOM  = 'upaxi';
+    const GAME_CONTRACT = 'paxi16kn52f54zpxsd2ydslu28latvll0gunpu6us6stdcs8p3hl6ucus5zznus';
+    const TKCC_CONTRACT = 'paxi1s353hkvev2xtv5076wr5l2v6wy4tl9ph872g0puupakcx2p6rkls8q3vms';
+
+    // 全局状态
+    let walletAddress = null;
+    let walletPublicKey = null;
+    let paxiBalance = 0;
+    let tkccBalance = 0;
+
+    // ============================================================
+    // 🔗 连接钱包（和三国卡牌完全一致）
+    // ============================================================
+    async function connectWallet() {
+        if (typeof window.paxihub === 'undefined') {
+            if (/Mobi/.test(navigator.userAgent)) {
+                window.location.href = `paxi://hub/explorer?url=${encodeURIComponent(window.location.href)}`;
+                setTimeout(() => { window.location.href = 'https://paxinet.io/paxi_docs/paxihub#paxihub-application'; }, 1000);
+            } else {
+                alert('⚠️ 未检测到 PaxiHub 钱包\n请在 PaxiHub App 内打开本页面，或安装浏览器扩展');
+            }
+            return;
+        }
+        try {
+            const sender = await window.paxihub.paxi.getAddress();
+            walletAddress = sender.address;
+            walletPublicKey = sender.public_key;
+
+            document.getElementById('walletBtn').textContent = '✅ 已连接';
+            document.getElementById('walletBtn').disabled = true;
+            document.getElementById('walletAddr').textContent = 
+                walletAddress.slice(0, 8) + '...' + walletAddress.slice(-4);
+
+            showToast('✅ 钱包已连接', 'success');
+            await refreshBalances();
+        } catch (e) {
+            console.error('connectWallet', e);
+            alert('❌ 连接失败：' + (e.message || e));
+        }
+    }
+
+    // ============================================================
+    // 💰 刷新余额（DApp 指南 2.6）
+    // ============================================================
+    async function refreshBalances() {
+        if (!walletAddress) return;
+        try {
+            // PAXI
+            const paxiRes = await fetch(`${PAXI_LCD}/cosmos/bank/v1beta1/balances/${walletAddress}`);
+            const paxiData = await paxiRes.json();
+            const paxiBal = (paxiData.balances || []).find(b => b.denom === PAXI_DENOM);
+            paxiBalance = paxiBal ? Number(paxiBal.amount) : 0;
+            document.getElementById('paxiBalance').textContent = (paxiBalance / 1_000_000).toFixed(2);
+
+            // TKCC
+            if (TKCC_CONTRACT) {
+                const q = JSON.stringify({ balance_of: { address: walletAddress } });
+                const url = `${PAXI_LCD}/cosmwasm/wasm/v1/contract/${TKCC_CONTRACT}/smart/` + btoa(q);
+                const pr = await fetch(url);
+                const pd = await pr.json();
+                tkccBalance = Number(pd.data?.balance || pd.data?.amount || pd.balance || 0);
+                document.getElementById('tkccBalance').textContent = (tkccBalance / 1_000_000).toFixed(2);
+            }
+        } catch (e) {
+            console.error('refreshBalances', e);
+        }
+    }
+
+    // ============================================================
+    // 🔧 工具函数
+    // ============================================================
+    function toMicro(n) { return String(Math.floor(Number(n) * 1_000_000)); }
+    function fromMicro(n) { return (Number(n) / 1_000_000).toFixed(2); }
+    function requireWallet() {
+        if (!walletAddress) { alert('⚠️ 请先连接钱包'); return false; }
+        return true;
+    }
+    function showToast(msg, type = 'info') {
+        const t = document.createElement('div');
+        t.className = 'toast ' + type;
+        t.textContent = msg;
+        Object.assign(t.style, {
+            position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.9)', color: '#fff', padding: '10px 24px',
+            borderRadius: '30px', fontSize: '14px', zIndex: 9999,
+            border: type === 'success' ? '1px solid #4caf50' : type === 'error' ? '1px solid #f44336' : '1px solid #b8860b'
+        });
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 2500);
+    }
+    function toB64(bytes) {
+        const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        let binary = '';
+        for (let i = 0; i < arr.length; i += 8192) {
+            binary += String.fromCharCode.apply(null, arr.subarray(i, Math.min(i + 8192, arr.length)));
+        }
+        return btoa(binary);
+    }
+
+    // ============================================================
+    // 📦 构建 MsgExecuteContract（DApp 指南 3.6）
+    // ============================================================
+    function buildMsgExecuteContract(senderAddr, contractAddr, msgObj, funds) {
+        const P = PaxiCosmJS;
+        const msg = P.MsgExecuteContract.fromPartial({
+            sender:    senderAddr,
+            contract:  contractAddr,
+            msg:       new TextEncoder().encode(JSON.stringify(msgObj)),
+            funds:     funds || []
+        });
+        return P.Any.fromPartial({
+            typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+            value:   P.MsgExecuteContract.encode(msg).finish()
+        });
+    }
+
+    // ============================================================
+    // 🚀 构建并广播交易（和三国卡牌 buildAndSendTx 完全一致）
+    // ============================================================
+    async function buildAndSendTx(messages, memo = "") {
+        const P = PaxiCosmJS;
+
+        // 1. chainId
+        const chainId = await fetch(`${PAXI_RPC}/status`)
+            .then(r => r.json())
+            .then(d => d.result.node_info.network);
+
+        // 2. accountNumber / sequence
+        const sender = await window.paxihub.paxi.getAddress();
+        const accRes = await fetch(`${PAXI_LCD}/cosmos/auth/v1beta1/accounts/${sender.address}`);
+        const { account } = await accRes.json();
+        const ba = account.base_account || account;
+        const accountNumber = Number(ba.account_number);
+        const sequence = Number(ba.sequence);
+
+        // 3. TxBody
+        const txBody = P.TxBody.fromPartial({ messages, memo });
+
+        // 4. Fee
+        const gasPrice = 0.05;
+        const gasLimit = 600_000;
+        const feeAmount = Math.ceil(gasLimit * gasPrice);
+        const fee = {
+            amount:  [P.coins(String(feeAmount), PAXI_DENOM)[0]],
+            gasLimit
+        };
+
+        // 5. PubKey Any
+        const pubkeyBytes = new Uint8Array(sender.public_key);
+        const pubkeyAny = {
+            typeUrl: "/cosmos.crypto.secp256k1.PubKey",
+            value:   P.PubKey.encode({ key: pubkeyBytes }).finish()
+        };
+
+        // 6. AuthInfo
+        const authInfo = P.AuthInfo.fromPartial({
+            signerInfos: [{
+                publicKey: pubkeyAny,
+                modeInfo:  { single: { mode: 1 } },
+                sequence:  BigInt(sequence)
+            }],
+            fee
+        });
+
+        // 7. SignDoc
+        const signDoc = P.SignDoc.fromPartial({
+            bodyBytes:     P.TxBody.encode(txBody).finish(),
+            authInfoBytes: P.AuthInfo.encode(authInfo).finish(),
+            chainId,
+            accountNumber: BigInt(accountNumber)
+        });
+
+        // 8. 钱包签名
+        const txObj = {
+            bodyBytes:     toB64(signDoc.bodyBytes),
+            authInfoBytes: toB64(signDoc.authInfoBytes),
+            chainId,
+            accountNumber: signDoc.accountNumber.toString()
+        };
+        const result = await window.paxihub.paxi.signAndSendTransaction(txObj);
+        const sigBytes = Uint8Array.from(atob(result.success), c => c.charCodeAt(0));
+
+        // 9. TxRaw
+        const txRaw = P.TxRaw.fromPartial({
+            bodyBytes:     signDoc.bodyBytes,
+            authInfoBytes: signDoc.authInfoBytes,
+            signatures:    [sigBytes]
+        });
+        const txBytes = P.TxRaw.encode(txRaw).finish();
+
+        // 10. 广播
+        const br = await fetch(`${PAXI_LCD}/cosmos/tx/v1beta1/txs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tx_bytes: toB64(txBytes), mode: 'BROADCAST_MODE_SYNC' })
+        }).then(r => r.json());
+
+        const txResp = br.tx_response || br;
+        if (txResp && txResp.code && txResp.code !== 0) {
+            throw new Error('交易失败: ' + (txResp.raw_log || txResp.code));
+        }
+        return br;
+    }
+
+    // ============================================================
+    // 🎯 猜数字游戏
+    // ============================================================
+    function changeGuess(delta) {
+        const el = document.getElementById('guessNumber');
+        let v = parseInt(el.value) + delta;
+        v = Math.max(0, Math.min(99, v));
+        el.value = v;
+    }
+
+    async function playGuess() {
+        if (!requireWallet()) return;
+
+        const num = parseInt(document.getElementById('guessNumber').value);
+        const betRaw = document.getElementById('betAmount').value;
+        const betMicro = toMicro(betRaw);
+
+        if (isNaN(num) || num < 0 || num > 99) { alert('❌ 数字必须在 0-99'); return; }
+        if (Number(betRaw) < 20000 || Number(betRaw) > 1000000) { alert('❌ 下注范围 20000-1000000 TKCC'); return; }
+        if (tkccBalance < betMicro) { alert('❌ TKCC 余额不足'); return; }
+
+        const resultEl = document.getElementById('resultArea');
+        resultEl.innerHTML = '<p style="color:#b8860b;">⏳ 交易中...</p>';
+
+        try {
+            // 构建 PlayGame 消息（和合约 ExecuteMsg 对齐）
+            const msgObj = {
+                play_game: {
+                    game_id: 'guess',
+                    action: 'guess',
+                    data: JSON.stringify({ number: num, bet: betMicro, token: TKCC_CONTRACT }),
+                    session_addr: walletAddress,
+                    nonce: Date.now(),  // 简化：用时间戳作 nonce（合约侧如果不验就安全）
+                    signature: ''       // 简化：前端内联版跳过会话签名（如果合约强制验签需要加回）
+                }
+            };
+
+            const anyMsg = buildMsgExecuteContract(walletAddress, GAME_CONTRACT, msgObj, []);
+            const br = await buildAndSendTx([anyMsg], 'guess');
+
+            // 等一下让链上出块
+            setTimeout(async () => {
+                await refreshBalances();
+                // 查询 PlayGame 结果（猜数字合约通常会 emit wasm-guess_result 事件）
+                const hash = br.tx_response?.txhash || br.txhash || '';
+                resultEl.innerHTML = `
+                    <p style="color:#4caf50;font-size:14px;">✅ 交易成功！</p>
+                    <p style="font-size:12px;color:#8a7a6a;">Hash: ${hash.slice(0, 20)}...</p>
+                    <p style="font-size:12px;color:#b8860b;">去区块浏览器查看结果</p>
+                `;
+            }, 1500);
+
+        } catch (e) {
+            console.error('playGuess', e);
+            resultEl.innerHTML = `<p style="color:#f44336;">❌ ${e.message || e}</p>`;
+            showToast('❌ 下注失败', 'error');
+        }
+    }
+    </script>
 </body>
 </html>
