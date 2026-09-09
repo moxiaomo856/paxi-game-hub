@@ -3,7 +3,7 @@
     "name": "猜数字",
     "icon": "🎯",
     "desc": "猜 0-99，猜中赢 2 倍",
-    "url": "guess/index.html",
+    "url": "games/guess/index.html",
     "repo": ""
   },
   {

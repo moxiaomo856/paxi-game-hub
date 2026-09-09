@@ -3,38 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>猜数字 - Paxi</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Paxi Game Hub</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="game-container">
-        <a href="../index.html" class="back-btn">← 返回大厅</a>
-        <h1>🎯 猜数字</h1>
-        <p class="rule">猜一个 0 - 99 之间的数字</p>
-        
-        <div class="stats">
-            <span>💰 余额: <b id="balance">100</b></span>
-            <span>🎲 已猜: <b id="guesses">0</b> 次</span>
-        </div>
-
-        <div class="play-area">
-            <div class="input-group">
-                <label>下注 (PAXI)</label>
-                <input type="number" id="betAmount" value="10" min="1">
-            </div>
-            <div class="input-group">
-                <label>猜数字 (0-99)</label>
-                <input type="number" id="guessNum" value="50" min="0" max="99">
-            </div>
-            <button id="playBtn" class="play-btn">猜！</button>
-        </div>
-
-        <div id="result" class="result hidden"></div>
-        
-        <button id="resetBtn" class="reset-btn hidden">重新开始</button>
-
-        <div class="history" id="history"></div>
+    <div id="app">
+        <header>
+            <button id="connectBtn">连接钱包</button>
+            <span id="addressDisplay"></span>
+            <span id="balanceDisplay">余额: 0</span>
+        </header>
+        <nav id="gameNav">
+            <button data-game="guess">猜数字</button>
+            <!-- 未来游戏: poker, chess, snake -->
+        </nav>
+        <main id="gameArea">
+            <p>选择一个游戏开始</p>
+        </main>
     </div>
-    <script src="game.js"></script>
+    <script src="https://mainnet-api.paxinet.io/resources/js/paxi-cosmjs.umd.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>
