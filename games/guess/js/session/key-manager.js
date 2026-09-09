@@ -42,7 +42,10 @@ export function clearSession() {
 // --- 工具函数 ---
 
 function getSecp256k1() {
+    // paxi-cosmjs UMD 包可能挂在不同路径
     if (window.cosmjs?.crypto?.Secp256k1) return window.cosmjs.crypto.Secp256k1;
+    if (window.paxi?.crypto?.Secp256k1) return window.paxi.crypto.Secp256k1;
+    if (window.paxihub?.crypto?.Secp256k1) return window.paxihub.crypto.Secp256k1;
     if (window.Secp256k1) return window.Secp256k1;
     return null;
 }

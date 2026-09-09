@@ -1,7 +1,6 @@
 import { ensureSession } from '../../session/session-client.js';
-import { getSessionKey } from '../../session/key-manager.js';
 import { signTxWithSession } from '../../core/signer.js';
-import { broadcastTx, waitForTx } from '../../core/tx-broadcaster.js';
+import { signAndBroadcastTx } from '../../core/wallet.js';
 import { CONFIG } from '../../config.js';
 
 let cachedAddress = null;
@@ -23,8 +22,7 @@ export async function guessNumber(number, bet) {
         throw new Error('会话初始化失败');
     }
 
-    // 2. 获取当前 nonce（从 localStorage 或链上查询）
-    //    简化：用 localStorage 存储 nonce
+    // 2. 获取当前 nonce（从 localStorage）
     const nonceKey = `game_nonce_${address}`;
     let nonce = parseInt(localStorage.getItem(nonceKey) || '0');
 
@@ -50,13 +48,13 @@ export async function guessNumber(number, bet) {
             game_id: 'guess',
             action: 'guess',
             data: JSON.stringify(gameData),
-            session_addr: address,                     // 钱包地址
-            nonce: nonce,                              // 当前 nonce
-            signature: signed.signature                // 会话签名
+            session_addr: address,
+            nonce: nonce,
+            signature: signed.signature
         }
     };
 
-    // 6. 广播交易
+    // 6. 广播交易（统一用 wallet.js 的 signAndBroadcastTx）
     const txBody = {
         contractAddress: CONFIG.contractAddress,
         message: msg,
@@ -66,8 +64,7 @@ export async function guessNumber(number, bet) {
         }
     };
 
-    // 使用 window.paxihub 广播（需要主钱包签名 Gas）
-    const result = await signAndBroadcast(txBody);
+    const result = await signAndBroadcastTx(txBody);
     
     // 7. nonce +1（无论成功与否，nonce 都应该递增）
     localStorage.setItem(nonceKey, String(nonce + 1));
@@ -75,25 +72,8 @@ export async function guessNumber(number, bet) {
     return result;
 }
 
-/**
- * 使用主钱包签名并广播（用于 Gas 支付）
- */
-async function signAndBroadcast(txBody) {
-    const paxi = window.paxihub?.paxi;
-    if (!paxi) {
-        throw new Error('PaxiHub 未连接');
-    }
-    try {
-        return await paxi.signAndBroadcast(txBody);
-    } catch (e) {
-        console.error('交易失败:', e);
-        throw e;
-    }
-}
-
 function getWalletAddress() {
     if (!cachedAddress) {
-        // 从 localStorage 读取
         const saved = localStorage.getItem('wallet_address');
         if (saved) {
             cachedAddress = saved;
