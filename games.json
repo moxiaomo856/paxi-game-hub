@@ -1,0 +1,16 @@
+[
+  {
+    "name": "猜数字",
+    "icon": "🎯",
+    "desc": "猜 0-99，猜中赢 2 倍",
+    "url": "games/guess/index.html",
+    "repo": ""
+  },
+  {
+    "name": "斗地主",
+    "icon": "🃏",
+    "desc": "经典三人纸牌游戏",
+    "url": "games/landlord/index.html",
+    "repo": ""
+  }
+]
