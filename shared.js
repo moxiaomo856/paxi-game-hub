@@ -1,0 +1,757 @@
+/**
+ * Paxi Game Hub - 公共模块
+ * 网络配置 / 合约地址 / 交易构建·签名·广播 / 合约查询 / 错误映射 / 工具函数
+ *
+ * 写法参考 paxi-toolbox 的 shared.js（simulate gas + 分块 base64 + 错误码映射）
+ */
+
+// ============================================================
+// 合约地址
+//
+// ⚠️ 游戏合约还没编译部署，所以这里【不写死】，留空占位。
+//    合约 instantiate 拿到地址后，任选一种方式填，都不用改代码：
+//
+//   ① 改下面 DEFAULT_GAME_CONTRACT   ← 正式上线推荐，改一次永久生效
+//   ② 访问 index.html?contract=paxi1xxx...
+//      （自动记住，之后不带参数打开也一样生效，方便手机上调试）
+//   ③ App 内「我的 → 合约地址」填一次
+//
+//    优先级：URL 参数 > localStorage（②③ 写入的） > ① 的默认值
+// ============================================================
+
+/** 游戏合约：合约 instantiate 后把地址填到这里；当前留空，部署后用 ② URL ?contract= 或 ③「我的」填 */
+const DEFAULT_GAME_CONTRACT = 'paxi1n6ykwpzl5aandw0233xq42m79u8cemp0t9eh5hxfx8jme9hrkzystrqmg8';
+
+/** TKCC 代币合约（已部署的 PRC-20）。想换或清空：用 ?tkcc=paxi1… 或「钱包 → 添加代币」 */
+const DEFAULT_TKCC_CONTRACT = 'paxi1s353hkvev2xtv5076wr5l2v6wy4tl9ph872g0puupakcx2p6rkls8q3vms';
+
+/** Swap 模块地址（Paxi 官方固定值，全链唯一，不要改） */
+const SWAP_MODULE = 'paxi1mfru9azs5nua2wxcd4sq64g5nt7nn4n80r745t';
+
+// ---- 地址解析：URL 参数 > localStorage > 默认值 ----
+const CONTRACT_LS_PREFIX = 'paxi_hub_contract_';
+const ADDR_RE = /^paxi1[a-z0-9]{20,}$/;
+
+function resolveContract(key, fallback) {
+  // ① URL 参数：命中则记住，之后裸开也生效
+  try {
+    const q = new URLSearchParams(location.search).get(key);
+    if (q && ADDR_RE.test(q)) {
+      try { localStorage.setItem(CONTRACT_LS_PREFIX + key, q); } catch (e) {}
+      return q;
+    }
+  } catch (e) {}
+  // ② localStorage
+  try {
+    const v = localStorage.getItem(CONTRACT_LS_PREFIX + key);
+    if (v && ADDR_RE.test(v)) return v;
+  } catch (e) {}
+  // ③ 代码里的默认值
+  return fallback || '';
+}
+
+/** 运行时改地址（「我的 → 合约地址」用），写入 localStorage 全站生效 */
+function setContract(key, addr) {
+  addr = String(addr || '').trim();
+  if (!addr) {
+    try { localStorage.removeItem(CONTRACT_LS_PREFIX + key); } catch (e) {}
+    return false;
+  }
+  if (!ADDR_RE.test(addr)) throw new Error('地址格式不对，应以 paxi1 开头');
+  try { localStorage.setItem(CONTRACT_LS_PREFIX + key, addr); } catch (e) {}
+  return true;
+}
+
+const CONTRACTS = {
+  get game() { return resolveContract('contract', DEFAULT_GAME_CONTRACT); },
+  get tkcc() { return resolveContract('tkcc', DEFAULT_TKCC_CONTRACT); },
+  swapModule: SWAP_MODULE,
+};
+
+/** 是否已经配好游戏合约地址（没配就别发请求，白报错） */
+function hasGameContract() {
+  return ADDR_RE.test(CONTRACTS.game || '');
+}
+
+// ============================================================
+// 网络配置
+// ============================================================
+const NETWORK = {
+  rpc: 'https://mainnet-rpc.paxinet.io',
+  lcd: 'https://mainnet-lcd.paxinet.io',
+  prefix: 'paxi',
+  denom: 'upaxi',
+  denomDisplay: 'PAXI',
+  decimals: 6,
+  gasPrice: '0.025upaxi',
+};
+
+/** 会话密钥每日额度（必须 <= 合约的 SESSION_DAILY_LIMIT_CAP）。
+ *  经济模型调整后单局最高 20 万 TKCC（= 2e11 raw），按 500 局/日算需 1e14 量级；
+ *  这里取 1e13（1000 万 TKCC），必须与链上 set_session_daily_limit_cap 的值一致，
+ *  否则注册会话会被合约以 DailyLimitExceeded 拒绝。 */
+// 🟢 审计修复（致命）：1e13 超过合约 SESSION_DAILY_LIMIT_CAP = 1e9，所有注册被拒绝
+const SESSION_DAILY_LIMIT = '1000000000';
+
+// localStorage 键
+const LS = {
+  sessPriv: 'paxi_hub_sess_priv',
+  sessPub: 'paxi_hub_sess_pub',
+  sessAddr: 'paxi_hub_sess_addr',
+  sessNonce: 'paxi_hub_sess_nonce',
+};
+
+// ============================================================
+// 代币（原生 PAXI / TKCC / 任意 PRC-20）
+// ============================================================
+const NATIVE_TOKEN = {
+  key: 'native', type: 'native', denom: 'upaxi',
+  symbol: 'PAXI', decimals: 6, name: 'Paxi',
+};
+
+const TOKEN_LS_KEY = 'paxi_hub_extra_tokens';   // 用户手动添加的 PRC-20 地址
+
+function extraTokens() {
+  try { return JSON.parse(localStorage.getItem(TOKEN_LS_KEY) || '[]'); } catch (e) { return []; }
+}
+function addExtraToken(addr) {
+  addr = String(addr || '').trim();
+  if (!ADDR_RE.test(addr)) throw new Error('地址格式不对，应以 paxi1 开头');
+  const list = extraTokens();
+  if (!list.includes(addr)) list.push(addr);
+  localStorage.setItem(TOKEN_LS_KEY, JSON.stringify(list));
+  return list;
+}
+function removeExtraToken(addr) {
+  const list = extraTokens().filter((a) => a !== addr);
+  localStorage.setItem(TOKEN_LS_KEY, JSON.stringify(list));
+  return list;
+}
+
+const tokenMetaCache = {};   // addr -> { symbol, decimals, name }
+
+/** 拉某个 PRC-20 的 symbol / decimals（cw20 标准的 token_info） */
+async function getTokenMeta(addr) {
+  if (tokenMetaCache[addr]) return tokenMetaCache[addr];
+  let meta = { symbol: shortAddr(addr, 4), decimals: 6, name: '' };
+  try {
+    const info = await queryTokenInfo(addr);
+    meta = {
+      symbol: info.symbol || meta.symbol,
+      decimals: Number(info.decimals ?? 6),
+      name: info.name || '',
+    };
+  } catch (e) { /* 查不到就显示短地址 + 6 位小数 */ }
+  tokenMetaCache[addr] = meta;
+  return meta;
+}
+
+/**
+ * 可用代币列表 = 原生 PAXI + 合约白名单里的 PRC-20 + 配置的 TKCC + 手动添加的
+ * 没连上或查询失败也不影响，至少返回原生 PAXI
+ */
+async function loadTokenList() {
+  const addrs = new Set();
+  if (CONTRACTS.tkcc) addrs.add(CONTRACTS.tkcc);
+  extraTokens().forEach((a) => addrs.add(a));
+  try {
+    const r = await queryContract({ list_prc20: {} });
+    (r.tokens || []).forEach((a) => addrs.add(a));
+  } catch (e) {
+    console.warn('list_prc20 失败（合约可能是旧版，还没这个接口）', e.message);
+  }
+
+  const list = [{ ...NATIVE_TOKEN }];
+  for (const addr of addrs) {
+    const meta = await getTokenMeta(addr);
+    list.push({
+      key: 'cw20:' + addr, type: 'cw20', contract: addr,
+      symbol: meta.symbol, decimals: meta.decimals, name: meta.name,
+    });
+  }
+  return list;
+}
+
+/** 从列表里按 key 找代币，找不到就当原生 */
+function findToken(tokens, key) {
+  return tokens.find((t) => t.key === key) || tokens[0] || NATIVE_TOKEN;
+}
+
+/** 合约内余额（原生走 balance 查询，PRC-20 传 token 地址） */
+async function queryGameBalance(token) {
+  const r = await queryContract({
+    balance: { address: state.wallet.address, token: token.type === 'native' ? null : token.contract },
+  });
+  return fromRawUnits(r.amount || '0', token.decimals);
+}
+
+/** 钱包里的链上余额 */
+async function queryWalletBalance(token) {
+  if (token.type === 'native') {
+    const r = await fetchAPI(`/cosmos/bank/v1beta1/balances/${state.wallet.address}`);
+    const c = (r.balances || []).find((x) => x.denom === NETWORK.denom);
+    return fromRawUnits(c ? c.amount : '0', token.decimals);
+  }
+  return fromRawUnits(await queryPrc20Balance(token.contract, state.wallet.address), token.decimals);
+}
+
+// ============================================================
+// 全局状态
+// ============================================================
+const state = {
+  wallet: null,        // { address, public_key }
+  connected: false,
+  chainBalance: '0',   // 链上 PAXI
+  gameBalance: '0',    // 合约内 PAXI
+  tkccBalance: '0',    // 合约内 TKCC
+  sessAddr: '',
+  sessPubHex: '',
+  sessNonce: 0,
+  sessInfo: null,      // 链上会话信息
+  games: [],           // 合约里的游戏列表
+  chainId: '',
+  tokens: [],          // 可用代币（原生 + PRC-20）
+  selToken: 'native',  // 当前选中的代币 key
+  walletBal: '0',      // 当前代币在钱包里的余额
+  gameBal: '0',        // 当前代币在合约内的余额
+};
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+/** 分块 base64，避免大交易栈溢出 */
+function toBase64(bytes) {
+  let binary = '';
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function fromBase64(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToHex(b) {
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(h) {
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i * 2, 2), 16);
+  return out;
+}
+
+/**
+ * HTML 转义 —— 所有来自链上 / 用户输入、要写进 innerHTML 的字符串都必须过一遍。
+ * 防止链上数据（卡名 / 提案名 / token symbol / 错误串）携带 <script> / <img onerror> 造成 XSS。
+ * 设计为可安全作用于任意类型（数字 / undefined 都直接转字符串，不会抛错）。
+ */
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return s.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+window.esc = esc;
+
+/** "1.5" -> "1500000"（纯字符串 + BigInt，不经过浮点） */
+function toRawUnits(amountStr, decimals = 6) {
+  const str = String(amountStr || '').trim();
+  if (!str || !/^\d*\.?\d*$/.test(str)) return '0';
+  const dot = str.indexOf('.');
+  let intPart = dot === -1 ? str : str.substring(0, dot) || '0';
+  let decPart = dot === -1 ? '' : str.substring(dot + 1);
+  if (decPart.length < decimals) decPart = decPart.padEnd(decimals, '0');
+  else if (decPart.length > decimals) decPart = decPart.substring(0, decimals);
+  try {
+    return (BigInt(intPart || '0') * BigInt(10) ** BigInt(decimals) + BigInt(decPart || '0')).toString();
+  } catch (e) {
+    return '0';
+  }
+}
+
+/** "1500000" -> "1.5" */
+function fromRawUnits(rawStr, decimals = 6) {
+  const s = String(rawStr || '0').padStart(decimals + 1, '0');
+  const intPart = s.slice(0, -decimals);
+  const decPart = s.slice(-decimals).replace(/0+$/, '');
+  return decPart ? intPart + '.' + decPart : intPart;
+}
+
+function shortAddr(a, n = 6) {
+  if (!a) return '';
+  return a.length > 16 ? a.slice(0, n + 2) + '…' + a.slice(-n) : a;
+}
+
+function showToast(msg, type = '') {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+/**
+ * 密码输入框（用于本地加密会话私钥）。纯 DOM 实现，不依赖任何外部 CSS/库。
+ * 返回 Promise<string|null>：用户输入的密码，或取消时 null。
+ * 标题/提示本身经过 esc() 处理，避免提示文案被注入。
+ */
+function promptSecret(title, hint) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('style', 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999');
+    overlay.innerHTML =
+      '<div style="background:#0f1626;border:1px solid #2a3756;border-radius:14px;padding:18px;width:300px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.5)">'
+      + '<div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:4px">' + esc(title) + '</div>'
+      + '<div style="font-size:12px;color:#9fb3d1;margin-bottom:10px;line-height:1.4">' + esc(hint) + '</div>'
+      + '<input type="password" id="psInput" style="width:100%;padding:9px 10px;border-radius:8px;border:1px solid #2a3756;background:#0a0f1b;color:#fff;font-size:14px;box-sizing:border-box" placeholder="••••••••" autocomplete="off">'
+      + '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'
+      + '<button id="psCancel" style="padding:8px 14px;border-radius:8px;border:1px solid #2a3756;background:transparent;color:#9fb3d1;cursor:pointer">取消</button>'
+      + '<button id="psOk" style="padding:8px 14px;border-radius:8px;border:none;background:#6ee7b7;color:#052e1e;font-weight:700;cursor:pointer">确定</button>'
+      + '</div></div>';
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#psInput');
+    const close = (val) => { overlay.remove(); resolve(val); };
+    input.focus();
+    overlay.querySelector('#psOk').onclick = () => close(input.value);
+    overlay.querySelector('#psCancel').onclick = () => close(null);
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') close(input.value);
+      else if (e.key === 'Escape') close(null);
+    };
+  });
+}
+window.promptSecret = promptSecret;
+
+// ============================================================
+// 错误码映射
+// ============================================================
+const ERROR_CODE_MAP = {
+  5: '消息序列化失败',
+  9: '地址无效',
+  11: 'Gas 不足（请调高 Gas Limit）',
+  13: '合约内部逻辑错误',
+  19: '账户序列号不匹配，请稍后重试',
+  20: '签名不匹配',
+  22: 'Gas 不足',
+  24: '签名无效',
+  28: '合约执行失败（业务逻辑报错）',
+};
+
+const ERROR_KEYWORDS = [
+  [/invalid ?nonce|invalidnonce/i, '会话 nonce 不匹配，已自动同步链上最新值，请重试'],
+  [/session.*(not|un).*regist|no session/i, '会话密钥未注册，请先注册会话'],
+  [/session.*expire/i, '会话已过期，请重新注册（续期 24 小时）'],
+  [/insufficient.*(bankroll|fund)/i, '庄家准备金不足，请联系管理员注资'],
+  [/payout.*too.*high|payouttoohigh/i, '派彩超过该游戏上限，请联系管理员调整 max_payout_multiplier'],
+  [/daily.*limit|exceed.*limit/i, '超出每日限额'],
+  [/below.*min.*bet|minbet/i, '低于最小下注额'],
+  [/exceed.*max.*bet|maxbet/i, '超过最大下注额'],
+  [/game.*(disabled|not.*enabled)/i, '该游戏已被停用'],
+  [/unauthorized|not admin/i, '权限不足'],
+  [/out of gas|gas.*exhausted/i, 'Gas 不足'],
+  [/insufficient fund/i, '余额不足'],
+  [/account sequence mismatch/i, '账户序列号不匹配，请稍后重试'],
+  [/rejected|denied|cancell?ed/i, '已在钱包中取消'],
+  [/timeout|timed out/i, '网络超时，请重试'],
+];
+
+function mapError(code, rawLog) {
+  if (code !== undefined && code !== 0 && ERROR_CODE_MAP[code]) {
+    return `${ERROR_CODE_MAP[code]}（代码 ${code}）`;
+  }
+  if (rawLog && typeof rawLog === 'string') {
+    for (const [re, msg] of ERROR_KEYWORDS) {
+      if (re.test(rawLog)) return msg;
+    }
+    // 合约自定义错误通常是 ...: invalid nonce 这种尾部信息
+    const m = /generic error|query wasm contract failed|execute wasm contract failed/i.test(rawLog);
+    const cleaned = rawLog.replace(/^.*?:\s*/, '').slice(0, 120);
+    if (!m && cleaned) return cleaned;
+  }
+  return rawLog ? String(rawLog).slice(0, 160) : '未知错误';
+}
+
+// ============================================================
+// LCD / RPC
+// ============================================================
+async function fetchAPI(path) {
+  const res = await fetch(`${NETWORK.lcd}${path}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+/** 查询任意合约（返回反序列化后的 JSON） */
+async function queryAnyContract(contractAddr, msg) {
+  const b64 = toBase64(new TextEncoder().encode(JSON.stringify(msg)));
+  const data = await fetchAPI(
+    `/cosmwasm/wasm/v1/contract/${contractAddr}/smart/${encodeURIComponent(b64)}`,
+  );
+  return data.data ?? data;
+}
+
+/** 查询游戏合约 */
+async function queryContract(msg) {
+  return queryAnyContract(CONTRACTS.game, msg);
+}
+
+/** PRC-20：代币元信息 { name, symbol, decimals, total_supply } */
+async function queryTokenInfo(tokenContract) {
+  return queryAnyContract(tokenContract, { token_info: {} });
+}
+
+/** PRC-20：钱包里的链上余额 */
+async function queryPrc20Balance(tokenContract, owner) {
+  const r = await queryAnyContract(tokenContract, { balance: { address: owner } });
+  return r.balance || '0';
+}
+
+/** PRC-20：owner 授权给 spender 的额度 */
+async function queryPrc20Allowance(tokenContract, owner, spender) {
+  try {
+    const r = await queryAnyContract(tokenContract, {
+      allowance: { owner, spender },
+    });
+    return r.allowance || '0';
+  } catch (e) {
+    // 有些实现查不到会直接报错，当作 0
+    return '0';
+  }
+}
+
+/** 取链上最新区块时间（秒）。
+ *
+ *  round_id = {action}_{blockTime}_{nonce}_{rand}，其中 blockTime 仅用于增强唯一性：
+ *  合约验签时直接取消息里下发的 round_id 原值
+ *  （games/mod.rs::validate_and_consume_session 第 6 段），并不依赖 env.block.time，
+ *  所以缓存若干秒不会影响验签通过。
+ *
+ *  🟢 修复（低危 3）：原先每个操作都要多一次 HTTP 往返，现缓存 5 秒。
+ *  注意：本地时间回落值不进缓存，避免把不准的值固化。
+ */
+let _blockTimeCache = { t: 0, at: 0 };
+const BLOCK_TIME_TTL_MS = 5000;
+async function getBlockTime() {
+  const now = Date.now();
+  if (_blockTimeCache.t && now - _blockTimeCache.at < BLOCK_TIME_TTL_MS) {
+    return _blockTimeCache.t;
+  }
+  try {
+    const r = await fetchAPI('/cosmos/base/tendermint/v1beta1/blocks/latest');
+    const t = r?.block?.header?.time || r?.result?.block?.header?.time;
+    if (t) {
+      const s = Math.floor(Date.parse(t) / 1000);
+      if (!Number.isNaN(s)) {
+        _blockTimeCache = { t: s, at: now };
+        return s;
+      }
+    }
+  } catch (e) {
+    console.warn('[getBlockTime] 取区块时间失败，回落本地时间', e.message);
+  }
+  return Math.floor(Date.now() / 1000);
+}
+
+async function fetchChainId() {
+  if (state.chainId) return state.chainId;
+  try {
+    const r = await fetch(`${NETWORK.rpc}/status`).then((x) => x.json());
+    state.chainId = r.result?.node_info?.network || '';
+  } catch (e) {}
+  if (!state.chainId) {
+    const r = await fetchAPI('/cosmos/base/tendermint/v1beta1/node_info');
+    state.chainId = r.default_node_info?.network || 'paxi-mainnet';
+  }
+  return state.chainId;
+}
+
+// ============================================================
+// 交易：simulate → 签名 → 广播
+// ============================================================
+function getPubKeyBytes(wallet) {
+  const pk = wallet.public_key || wallet.publicKey;
+  if (!pk) throw new Error('钱包公钥缺失');
+  return typeof pk === 'string' ? fromBase64(pk) : new Uint8Array(pk);
+}
+
+/** 空签名模拟，让节点告诉我们真实 gas */
+async function simulateGas(messages, memo, accountNumber, sequence, wallet) {
+  const pubkeyAny = {
+    typeUrl: '/cosmos.crypto.secp256k1.PubKey',
+    value: PaxiCosmJS.PubKey.encode({ key: getPubKeyBytes(wallet) }).finish(),
+  };
+  const dummyGas = 900000;
+  const txBody = PaxiCosmJS.TxBody.fromPartial({ messages, memo: memo || '' });
+  const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
+    signerInfos: [{ publicKey: pubkeyAny, modeInfo: { single: { mode: 1 } }, sequence: BigInt(sequence) }],
+    fee: { amount: [PaxiCosmJS.coins('25000', NETWORK.denom)[0]], gasLimit: BigInt(dummyGas) },
+  });
+  const txRaw = PaxiCosmJS.TxRaw.fromPartial({
+    bodyBytes: PaxiCosmJS.TxBody.encode(txBody).finish(),
+    authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
+    signatures: [new Uint8Array(64)],
+  });
+  const res = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tx_bytes: toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish()) }),
+  });
+  if (!res.ok) throw new Error(`simulate HTTP ${res.status}`);
+  const d = await res.json();
+  const gas = d.gas_info?.gas_used || d.gasUsed;
+  if (gas && Number(gas) > 0) return Number(gas);
+  throw new Error('simulate 无有效 gas');
+}
+
+/**
+ * 构造一笔 MsgExecuteContract 交易并签名广播
+ * @returns txhash
+ */
+// 🟢 无感签名：execAnyContract 自动分流
+//
+// 判断规则（无感走会话签名器，否则走主钱包）：
+//   1. 会话已注册（state.sessPriv / state.sessAddr 存在）
+//   2. Feegrant 有效（主钱包 → 会话地址的授权未过期）
+//   3. 非强制主钱包的操作（资产进出 / 管理员 / 授权操作）
+async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = {}) {
+  if (!state.connected || !state.wallet) throw new Error('钱包未连接');
+
+  // 🟢 无感通道白名单：只有明确列出的游戏消息才走会话签名，其余一律主钱包
+  // （资产进出 / 注册 / 授权 / Swap 等敏感操作默认走主钱包，避免误用会话地址）
+  const SEAMLESS_VARIANTS = new Set([
+    'play', 'sanguo_draw', 'sanguo_ai_battle', 'sanguo_claim_reward',
+    'sanguo_set_battle_order', 'sanguo_star_up', 'sanguo_decompose',
+    'sanguo_upgrade', 'sanguo_craft', 'sanguo_propose_card', 'sanguo_vote_card',
+    'sanguo_execute_proposal', 'sanguo_cancel_proposal',
+    'sanguo_create_pvp', 'sanguo_accept_pvp', 'sanguo_cancel_pvp',
+    'sanguo_claim_pvp_reward',
+    'sanguo_create_royale', 'sanguo_join_royale', 'sanguo_settle_royale',
+    'sanguo_claim_royale_reward', 'sanguo_migrate_from_old',
+  ]);
+  const variantKey = Object.keys(msg)[0] || '';
+  const useSession = SEAMLESS_VARIANTS.has(variantKey)
+    && state.sessPriv && state.sessAddr && state.wallet
+    && await Session.hasFeegrant();
+
+  const sender = useSession ? state.sessAddr : state.wallet.address;
+
+  const value = PaxiCosmJS.MsgExecuteContract.fromPartial({
+    sender,
+    contract: contractAddr,
+    msg: new TextEncoder().encode(JSON.stringify(msg)),
+    funds: funds.length ? funds : [],
+  });
+  const messages = [{
+    typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract',
+    value: PaxiCosmJS.MsgExecuteContract.encode(value).finish(),
+  }];
+
+  if (useSession) {
+    return Session.sendTxWithSession(messages, memo);
+  }
+  return sendTx(messages, memo);
+}
+
+/** 执行游戏合约 */
+async function execContract(msg, funds = [], memo = '') {
+  return execAnyContract(CONTRACTS.game, msg, funds, memo);
+}
+
+/**
+ * PRC-20 授权：把 amount 授权给游戏合约（deposit 前必须先有 allowance）
+ * 已经是 cw20 标准消息，直接发到代币合约
+ */
+async function approvePrc20(tokenContract, amount, spender) {
+  return execAnyContract(tokenContract, {
+    increase_allowance: {
+      spender: spender || CONTRACTS.game,
+      amount: String(amount),
+      expires: undefined,   // 不过期
+    },
+  });
+}
+
+/** 通用：账户信息 → gas → SignDoc → 钱包签 → 广播 */
+// 🟢 无感签名备用：支持 opts.sender（默认 state.wallet.address）
+async function sendTx(messages, memo = '', opts = {}) {
+  const senderAddr = opts.sender || state.wallet.address;
+  const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${senderAddr}`);
+  if (!acctRes.ok) throw new Error(`获取账户失败 HTTP ${acctRes.status}`);
+  const acctData = await acctRes.json();
+  const acct = acctData.account?.base_account || acctData.account;
+  const accountNumber = Number(acct.account_number);
+  const sequence = Number(acct.sequence);
+  const chainId = await fetchChainId();
+
+  // gas：先 simulate，失败回退静态估算
+  // 注：不能用 messages[0].typeUrl 判断是否 Swap —— 前端只构造 MsgExecuteContract
+  //     （Stargate 的 MsgSwap 是合约内部子消息，前端不可见），所以 typeUrl 恒为
+  //     /cosmwasm.wasm.v1.MsgExecuteContract。而 Swap 在合约内会展开成
+  //     increase_allowance + Stargate MsgSwap + reply，实际 gas 明显高于普通交易。
+  //     故回退值统一取 1500000：普通交易够用，Swap 也覆盖得住。
+  //     （回退只在 simulate 失败时生效；simulate 成功时以实际值 ×1.2 为准，不会多扣费）
+  let gas = 1500000;
+  try {
+    gas = Math.floor((await simulateGas(messages, memo, accountNumber, sequence, state.wallet)) * 1.2);
+  } catch (e) {
+    console.warn('[Tx] simulate 失败，用静态估算', e.message);
+  }
+
+  const priceMatch = /^([\d.]+)\s*upaxi$/i.exec(NETWORK.gasPrice);
+  const price = priceMatch ? parseFloat(priceMatch[1]) : 0.025;
+
+  const txBody = PaxiCosmJS.TxBody.fromPartial({ messages, memo });
+  const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
+    signerInfos: [{
+      publicKey: {
+        typeUrl: '/cosmos.crypto.secp256k1.PubKey',
+        value: PaxiCosmJS.PubKey.encode({ key: getPubKeyBytes(state.wallet) }).finish(),
+      },
+      modeInfo: { single: { mode: 1 } },
+      sequence: BigInt(sequence),
+    }],
+    fee: {
+      amount: [PaxiCosmJS.coins(Math.max(1, Math.floor(gas * price)).toString(), NETWORK.denom)[0]],
+      gasLimit: BigInt(gas),
+    },
+  });
+
+  const signDoc = PaxiCosmJS.SignDoc.fromPartial({
+    bodyBytes: PaxiCosmJS.TxBody.encode(txBody).finish(),
+    authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
+    chainId,
+    accountNumber: BigInt(accountNumber),
+  });
+
+  const result = await window.paxihub.paxi.signAndSendTransaction({
+    bodyBytes: toBase64(signDoc.bodyBytes),
+    authInfoBytes: toBase64(signDoc.authInfoBytes),
+    chainId,
+    accountNumber: signDoc.accountNumber.toString(),
+  });
+  if (!result || !result.success) throw new Error(result?.message || '钱包签名失败或被拒绝');
+
+  const txRaw = PaxiCosmJS.TxRaw.fromPartial({
+    bodyBytes: signDoc.bodyBytes,
+    authInfoBytes: signDoc.authInfoBytes,
+    signatures: [fromBase64(result.success)],
+  });
+
+  const bc = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tx_bytes: toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish()),
+      mode: 'BROADCAST_MODE_SYNC',
+    }),
+  }).then((r) => r.json());
+
+  const tx = bc.tx_response || bc;
+  if (tx.code !== 0) {
+    throw new Error(mapError(tx.code, tx.raw_log));
+  }
+  if (!tx.txhash) throw new Error(mapError(tx.code, bc.message || tx.raw_log));
+  return tx.txhash;
+}
+
+/** 轮询上链结果（BROADCAST_MODE_SYNC 只保证进 mempool） */
+async function waitForTx(txhash, timeoutMs = 30000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const d = await fetchAPI(`/cosmos/tx/v1beta1/txs/${txhash}`);
+      const tx = d.tx_response || d;
+      if (tx && tx.height && parseInt(tx.height) > 0) {
+        if (tx.code !== 0) throw new Error(mapError(tx.code, tx.raw_log));
+        return tx;
+      }
+    } catch (e) {
+      if (e.message && !/API 404|API 400/.test(e.message)) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw new Error('交易确认超时，请稍后在浏览器中查看该哈希');
+}
+
+/** 解析交易事件属性（兼容 base64 编码的 value） */
+function parseTxEvents(tx, wantedKeys) {
+  const out = {};
+  const events = [...(tx.events || [])];
+  for (const log of tx.logs || []) events.push(...(log.events || []));
+
+  const decode = (v) => {
+    if (v == null) return v;
+    try {
+      const dec = atob(v);
+      // 只有解码后是可打印 ASCII 才采用，避免误判
+      if (/^[\x20-\x7e]*$/.test(dec)) return dec;
+    } catch (e) {}
+    return v;
+  };
+
+  for (const ev of events) {
+    for (const a of ev.attributes || []) {
+      const k = decode(a.key);
+      if (wantedKeys.includes(k)) {
+        (out[k] = out[k] || []).push(decode(a.value));
+      }
+    }
+  }
+  return out;
+}
+
+// ============================================================
+// bech32 编码（会话地址派生用）
+// ============================================================
+(function bech32Encode() {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  function polymod(values) {
+    const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    let chk = 1;
+    for (const v of values) {
+      const b = chk >>> 25;
+      chk = ((chk & 0x1ffffff) << 5) ^ v;
+      for (let i = 0; i < 5; i++) if ((b >> i) & 1) chk ^= GEN[i];
+    }
+    return chk;
+  }
+  function hrpExpand(hrp) {
+    return [...hrp].map((c) => c.charCodeAt(0) >> 5).concat(0)
+      .concat([...hrp].map((c) => c.charCodeAt(0) & 31));
+  }
+  function convertBits(data, from, to) {
+    let acc = 0, bits = 0, ret = [];
+    const maxv = (1 << to) - 1;
+    for (const value of data) {
+      acc = (acc << from) | value;
+      bits += from;
+      while (bits >= to) { bits -= to; ret.push((acc >> bits) & maxv); }
+    }
+    if (bits) ret.push((acc << (to - bits)) & maxv);
+    return ret;
+  }
+  window.bech32Encode = function (hrp, data) {
+    const values = hrpExpand(hrp).concat(convertBits(data, 8, 5));
+    const chk = polymod(values.concat([0, 0, 0, 0, 0, 0])) ^ 1;
+    const checksum = [];
+    for (let i = 0; i < 6; i++) checksum.push((chk >> (5 * (5 - i))) & 31);
+    // 🔴 修复（致命）：切片偏移原来是 hrp.length + 1。
+    //    values = hrpExpand(hrp) + convertBits(data,8,5)，而 hrpExpand 的长度是
+    //    **2*len(hrp)+1**（高位部分 len(hrp) 个 + 分隔的 1 个 0 + 低位部分 len(hrp) 个），
+    //    bech32 编码要求结果 = hrp + '1' + (去掉 hrpExpand 的 data 部分 + 6 位校验)。
+    //    用 len(hrp)+1 会把 (len(hrp)-1) 个 hrpExpand 的残留值混进 data，
+    //    导致产出地址校验和非法（实测 hrp='paxi' 时得到 47 字符、polymod≠1），
+    //    被 addr_validate 拒绝 → 会话注册失败 → 全站不可玩。
+    return hrp + '1' + values.concat(checksum).slice(hrp.length * 2 + 1)
+      .map((v) => CHARSET[v]).join('');
+  };
+})();
