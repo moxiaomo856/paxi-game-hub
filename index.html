@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -378,10 +378,18 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
     } catch (e) { console.warn('CosmJS ESM 加载失败:', e.message); }
   });
 </script>
+<!-- 🟢 noble 加密库（会话密钥签名用）；⚠️ 必须注入 hmacSha256Sync -->
 <script type="module">
   import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
   import { sha256 } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/sha256/+esm';
   import { ripemd160 } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/ripemd160/+esm';
+  import { hmac } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/hmac/+esm';
+
+  // 🔴 关键：noble-secp256k1 v2.x 不再内置 HMAC，必须手动注入。
+  //    不加这行，secp.sign() 会抛 "etc.hmacSha256Sync not set"。
+  secp.etc.hmacSha256Sync = (key, ...msgs) =>
+    hmac(sha256, key, secp.etc.concatBytes(...msgs));
+
   window.nobleSecp = secp;
   window.nobleSha256 = sha256;
   window.nobleRipemd160 = ripemd160;

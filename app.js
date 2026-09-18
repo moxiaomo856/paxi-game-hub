@@ -1,4 +1,4 @@
-﻿// 本轮改动（B + D2 + I + R12）：「我的」页新增无感模式卡片 + 状态/到期提示；
+// 本轮改动（B + D2 + I + R12）：「我的」页新增无感模式卡片 + 状态/到期提示；
 //   hardReset 清空会话客户端缓存与内存私钥（I 修复）；
 //   R12：①app.js/sanguo.js 的 Session.sign 调用补 await（C1 修复）②深链回退统一为官方 DApp 指南文档链接。
 /**
@@ -741,9 +741,9 @@ function renderMe() {
       <div class="card-title">🔓 无感模式</div>
       <div class="kv"><span class="k">状态</span><span class="v" id="seamlessStatus">检测中…</span></div>
       <div class="kv"><span class="k">到期时间</span><span class="v" id="seamlessExpiry">—</span></div>
-      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">开启无感模式（7 天免密）</button>
+      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">开启无感模式（24 小时免密）</button>
       <div class="desc" style="margin-top:8px">
-        开启后 7 天内游戏操作不再弹钱包。到期后需重新点击授权一次。充值 / 提现 / 管理员操作不受影响。
+        开启后 24 小时内游戏操作不再弹钱包，gas 由主钱包代付。到期后需重新点击授权一次。充值 / 提现 / 管理员操作不受影响。
       </div>
     </div>
 
@@ -752,14 +752,11 @@ function renderMe() {
       <div class="kv"><span class="k">${hubT('acc_game_contract')}</span><span class="v">${
         CONTRACTS.game ? shortAddr(CONTRACTS.game, 8) : `<span style="color:#c0392b">${hubT('not_configured')}</span>`
       }</span></div>
+      <div class="kv"><span class="k">${hubT('contract_tkcc_label')}</span><span class="v" style="color:#6ee7b7">${CONTRACTS.tkcc ? shortAddr(CONTRACTS.tkcc, 8) : '—'}</span></div>
 
       <div class="field">
         <label class="label">${hubT('contract_game_label')}</label>
         <input type="text" class="input" id="inContract" placeholder="${hubLang() === 'en' ? 'paxi1… (address returned after instantiate)' : 'paxi1…（instantiate 后拿到的地址）'}" value="${CONTRACTS.game || ''}" spellcheck="false" autocapitalize="off" autocorrect="off">
-      </div>
-      <div class="field">
-        <label class="label">${hubT('contract_tkcc_label')}</label>
-        <input type="text" class="input" id="inTkcc" placeholder="paxi1…" value="${CONTRACTS.tkcc || ''}" spellcheck="false" autocapitalize="off" autocorrect="off">
       </div>
       <button class="btn btn-primary" onclick="saveContracts()">${hubT('save_btn')}</button>
       <div class="desc" style="margin-top:8px">
@@ -788,28 +785,37 @@ function renderMe() {
 async function renderSeamlessCard() {
   const btn = $('btnSeamless');
   if (!btn) return;
-  const ok = await Session.hasFeegrant();
-  const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
-  const daysLeft = Math.max(0, (exp - Date.now()) / 86400000);
 
-  if (!ok) {
+  // 🟢 以「链上会话」为判断基准（会话才是真正决定能不能签名的）
+  const info = await Session.syncFromChain().catch(() => null);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const hoursLeft = (info && info.expiresAt) ? Math.max(0, (info.expiresAt - nowSec) / 3600) : 0;
+  const sessionOk = !!(info && info.registered && !info.expired && info.pubMatches);
+
+  // Feegrant 是否仍有效（gas 代付），作为辅助信息，不决定按钮状态
+  const feegrantOk = await Session.hasFeegrant().catch(() => false);
+
+  if (!sessionOk) {
     $('seamlessStatus').innerHTML = '<span class="warn-txt">未开启 / 已过期</span>';
     $('seamlessExpiry').textContent = '—';
-    btn.textContent = '开启无感模式（7 天免密）';
-  } else if (daysLeft < 1) {
+    btn.textContent = '开启无感模式（24 小时免密）';
+  } else if (hoursLeft < 2) {
     $('seamlessStatus').innerHTML = '<span class="warn-txt">即将到期</span>';
-    $('seamlessExpiry').textContent = `${daysLeft.toFixed(1)} 天后`;
-    btn.textContent = '续期无感模式（+7 天）';
+    $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
+    btn.textContent = '续期无感模式（+24 小时）';
   } else {
-    $('seamlessStatus').innerHTML = '<span class="ok-txt">正常</span>';
-    $('seamlessExpiry').textContent = `${daysLeft.toFixed(1)} 天后`;
-    btn.textContent = '续期无感模式（+7 天）';
+    $('seamlessStatus').innerHTML = feegrantOk
+      ? '<span class="ok-txt">正常</span>'
+      : '<span class="warn-txt">会话有效，gas 代付已过期</span>';
+    $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
+    btn.textContent = '续期无感模式（+24 小时）';
   }
+
   btn.onclick = async () => {
     showBusy('授权中…');
     try {
       await Session.enableSeamlessMode();
-      showToast('无感模式已开启，7 天内不再弹窗', 'success');
+      showToast('无感模式已开启，24 小时内不再弹窗', 'success');
       await renderSeamlessCard();
     } catch (e) {
       showToast(e.message, 'error');
@@ -841,9 +847,7 @@ async function loadLimitList() {
 function saveContracts() {
   try {
     const game = ($('inContract')?.value || '').trim();
-    const tkcc = ($('inTkcc')?.value || '').trim();
     setContract('contract', game);      // 留空 = 删除该项
-    setContract('tkcc', tkcc);
     showToast(CONTRACTS.game ? '已保存，正在刷新' : '已清除地址');
     setTimeout(() => window.location.reload(), 600);
   } catch (e) {
@@ -854,7 +858,6 @@ function saveContracts() {
 function clearContracts() {
   try {
     localStorage.removeItem('paxi_hub_contract_contract');
-    localStorage.removeItem('paxi_hub_contract_tkcc');
   } catch (e) {}
   showToast('已清除，回到代码默认值');
   setTimeout(() => window.location.reload(), 600);
@@ -1139,14 +1142,17 @@ async function boot() {
 
   if (currentTab === 'home') renderHome();
 
-  // 🟢 无感授权到期前提示（24 小时内到期时提醒用户到「我的」续期）
+  // 🟢 会话到期前提示（剩余 < 2 小时提醒续期）
   (function checkSeamlessExpiry() {
-    const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
-    if (!exp) return;
-    const daysLeft = (exp - Date.now()) / 86400000;
-    if (daysLeft > 0 && daysLeft < 1) {
-      showToast('无感授权将在 24 小时内到期，请到「我的」续期', 'error');
-    }
+    try {
+      const info = state.sessInfo;
+      if (!info || !info.expires_at) return;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const hoursLeft = (Number(info.expires_at) - nowSec) / 3600;
+      if (hoursLeft > 0 && hoursLeft < 2) {
+        showToast('无感会话将在 2 小时内到期，请到「我的」续期', 'error');
+      }
+    } catch (e) {}
   })();
 }
 

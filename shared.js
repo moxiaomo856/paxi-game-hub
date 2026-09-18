@@ -87,11 +87,8 @@ const NETWORK = {
 };
 
 /** 会话密钥每日额度（必须 <= 合约的 SESSION_DAILY_LIMIT_CAP）。
- *  经济模型调整后单局最高 20 万 TKCC（= 2e11 raw），按 500 局/日算需 1e14 量级；
- *  这里取 1e13（1000 万 TKCC），必须与链上 set_session_daily_limit_cap 的值一致，
- *  否则注册会话会被合约以 DailyLimitExceeded 拒绝。 */
-// 🟢 审计修复（致命）：1e13 超过合约 SESSION_DAILY_LIMIT_CAP = 1e9，所有注册被拒绝
-const SESSION_DAILY_LIMIT = '1000000000';
+ *  1000 万 TKCC/天，与链上 set_session_daily_limit_cap = 1e13 对齐。 */
+const SESSION_DAILY_LIMIT = '10000000000000';
 
 // localStorage 键
 const LS = {
