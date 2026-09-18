@@ -448,34 +448,54 @@
     //    同步失败不阻断，沿用本地缓存 nonce（与修复前行为一致）。
     try { await Session.syncFromChain(); } catch (e) { /* 沿用本地 nonce */ }
 
-    const roundId = await sanguoRoundId(action);
-    const message = Session.buildMessage({
-      gameId: 'sanguo',
-      action,
-      roundId,
-      amountPayout: spend,
-      nonce: state.sessNonce,
-    });
-    const sig = await Session.sign(message);
-    // ⚠️ 合约 ExecuteMsg 用 #[cw_serde] → 枚举变体按 snake_case 序列化
-    //    (SanguoDraw → "sanguo_draw")。此前误用帕斯卡命名会被合约拒绝为 unknown variant。
-    //    统一在此处把 PascalCase 变体名转成 snake_case，调用方无需改动。
-    const msgKey = variant.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
-    const payload = {
-      [msgKey]: {
-        ...fields,
-        round_id: roundId,
-        session_addr: state.sessAddr,
+    // 🟢 修复（2026-09-18）：签名守卫 + nonce 漂移自动重试。
+    //    此前发生过：手机钱包内置浏览器缓存旧版 session.js → Session.sign 返回空串 →
+    //    带 signature:"" 的必败消息仍被推给钱包弹窗 → 用户确认后合约才拒绝。
+    //    现在签名不为 128 位 hex 就地报错并提示强刷；nonce 类错误自动重同步重试一次。
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const roundId = await sanguoRoundId(action);
+      const message = Session.buildMessage({
+        gameId: 'sanguo',
+        action,
+        roundId,
+        amountPayout: spend,
         nonce: state.sessNonce,
-        signature: sig,
-      },
-    };
-    const hash = await execContract(payload, opts.funds || []);
-    const tx = await waitForTx(hash);
-    Session.bumpNonce();
-    // tx 一并返回：调用方可以直接用 parseTxEvents 读本次交易的 attributes，
-    // 不必再 poll 一次同一条交易。
-    return { hash, roundId, tx };
+      });
+      const sig = await Session.sign(message);
+      if (!sig || !/^[0-9a-f]{128}$/.test(sig)) {
+        throw new Error('会话签名异常（签名为空）——通常是浏览器缓存了旧版脚本，请强制刷新页面（或清除缓存）后重试');
+      }
+      // ⚠️ 合约 ExecuteMsg 用 #[cw_serde] → 枚举变体按 snake_case 序列化
+      //    (SanguoDraw → "sanguo_draw")。此前误用帕斯卡命名会被合约拒绝为 unknown variant。
+      //    统一在此处把 PascalCase 变体名转成 snake_case，调用方无需改动。
+      const msgKey = variant.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+      const payload = {
+        [msgKey]: {
+          ...fields,
+          round_id: roundId,
+          session_addr: state.sessAddr,
+          nonce: state.sessNonce,
+          signature: sig,
+        },
+      };
+      try {
+        const hash = await execContract(payload, opts.funds || []);
+        const tx = await waitForTx(hash);
+        Session.bumpNonce();
+        // tx 一并返回：调用方可以直接用 parseTxEvents 读本次交易的 attributes，
+        // 不必再 poll 一次同一条交易。
+        return { hash, roundId, tx };
+      } catch (e) {
+        // nonce 漂移（换设备/上笔失败/多标签页）→ 重同步链上 nonce 后整体重建
+        // round_id + 签名再试一次；其他错误原样抛出。
+        if (attempt < 2 && /nonce/i.test(String(e && e.message))) {
+          try { await Session.syncFromChain(); } catch (_) { /* 保持本地 nonce */ }
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw new Error('unreachable');
   }
 
   // ============================================================

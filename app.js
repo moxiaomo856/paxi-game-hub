@@ -751,6 +751,7 @@ function renderMe() {
       <div class="kv"><span class="k">${hubT('acc_wallet_addr')}</span><span class="v">${shortAddr(state.wallet?.address, 8) || '—'}</span></div>
       <div class="kv"><span class="k">${hubT('acc_sess_addr')}</span><span class="v">${shortAddr(state.sessAddr, 8) || '—'}</span></div>
       <div class="kv"><span class="k">${hubT('acc_chain_id')}</span><span class="v">${state.chainId || '—'}</span></div>
+      <div class="desc" style="margin-top:6px;opacity:.6">build ${window.HUB_BUILD || '未知（旧版缓存）'}</div>
     </div>
 
     <div class="card">

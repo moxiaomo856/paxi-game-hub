@@ -333,7 +333,10 @@ window.promptSecret = promptSecret;
 // 错误码映射
 // ============================================================
 const ERROR_CODE_MAP = {
-  5: '消息序列化失败',
+  // 🟢 修正：代码 5 此前标为"消息序列化失败"是误判——CosmWasm 执行回退统一返回代码 5，
+  //    真实错误藏在 raw_log 里（如 SanguoMigrationNotAllowed / invalid nonce / already migrated /
+  //    insufficient funds），码值本身只当兜底，必须以 raw_log 关键词为准（见 mapError）。
+  5: '交易执行失败',
   9: '地址无效',
   11: 'Gas 不足（请调高 Gas Limit）',
   13: '合约内部逻辑错误',
@@ -348,7 +351,11 @@ const ERROR_KEYWORDS = [
   [/invalid ?nonce|invalidnonce/i, '会话 nonce 不匹配，已自动同步链上最新值，请重试'],
   [/session.*(not|un).*regist|no session/i, '会话密钥未注册，请先注册会话'],
   [/session.*expire/i, '会话已过期，请重新注册（续期 24 小时）'],
-  [/insufficient.*(bankroll|fund)/i, '庄家准备金不足，请联系管理员注资'],
+  // 🟡 修正（2026-09-18）：此前用 /insufficient.*(bankroll|fund)/i 会误伤银行模块的
+  //    "insufficient funds"（Gas 不足），把它错标成"庄家准备金不足"。
+  //    合约自身的 bankroll 错误文案是 "House bankroll insufficient ..."（bankroll 在 insufficient 之前），
+  //    必须用更精确的 /house bankroll insufficient/i 才命中，避免与 Gas 错误混淆。
+  [/house bankroll insufficient/i, '庄家准备金不足，请联系管理员注资'],
   [/payout.*too.*high|payouttoohigh/i, '派彩超过该游戏上限，请联系管理员调整 max_payout_multiplier'],
   [/daily.*limit|exceed.*limit/i, '超出每日限额'],
   [/below.*min.*bet|minbet/i, '低于最小下注额'],
@@ -356,7 +363,9 @@ const ERROR_KEYWORDS = [
   [/game.*(disabled|not.*enabled)/i, '该游戏已被停用'],
   [/unauthorized|not admin/i, '权限不足'],
   [/out of gas|gas.*exhausted/i, 'Gas 不足'],
-  [/insufficient fund/i, '余额不足'],
+  // 🟡 Gas/费用不足：银行模块 "insufficient funds"（主钱包/代付地址没有 PAXI 付 Gas）。
+  //    此前被上面的 bankroll 正则抢标，现已让位给正确文案。
+  [/insufficient fund/i, '余额不足（Gas 费用不足，请确认主钱包/代付地址有足够 PAXI）'],
   [/account sequence mismatch/i, '账户序列号不匹配，请稍后重试'],
   [/rejected|denied|cancell?ed/i, '已在钱包中取消'],
   [/timeout|timed out/i, '网络超时，请重试'],
@@ -369,10 +378,12 @@ function mapError(code, rawLog) {
   const base = (code !== undefined && code !== 0 && ERROR_CODE_MAP[code])
     ? `${ERROR_CODE_MAP[code]}（代码 ${code}）`
     : null;
-  if (rawLog && typeof rawLog === 'string') {
-    for (const [re, msg] of ERROR_KEYWORDS) {
-      if (re.test(rawLog)) return base ? `${base}：${msg}` : msg;
-    }
+    if (rawLog && typeof rawLog === 'string') {
+      for (const [re, msg] of ERROR_KEYWORDS) {
+        // 🟢 关键词命中即以 raw_log 结论为准，不再拼 ERROR_CODE_MAP 的兜底前缀
+        //    （此前"消息序列化失败（代码5）：庄家准备金不足"前半句是误导）。
+        if (re.test(rawLog)) return msg;
+      }
     const cleaned = rawLog
       .replace(/^.*?:\s*/, '')          // 去掉 "execute wasm contract failed: " 前缀
       .replace(/\s+/g, ' ')
@@ -576,6 +587,14 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
       return await Session.sendTxWithSession(messages, memo);
     } catch (e) {
       console.warn('[execAnyContract] 无感通道失败，自动 fallback 主钱包:', e && e.message);
+      // 🟢 回退不再静默：弹一次提示告知原因，方便定位是 Feegrant 失效 / nonce 漂移 /
+      //    旧版脚本缓存等哪类问题（每次页面加载只提示一次，避免刷屏）。
+      if (typeof showToast === 'function' && !execAnyContract._fallbackToasted) {
+        execAnyContract._fallbackToasted = true;
+        try {
+          showToast(`无感签名失败，本次改用钱包签名：${(e && e.message) || '未知原因'}`, 'error');
+        } catch (_) { /* UI 未就绪时忽略 */ }
+      }
     }
   }
   return sendTx(messages, memo);
