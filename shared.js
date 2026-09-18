@@ -415,6 +415,17 @@ const ERROR_KEYWORDS = [
   [/game.*(disabled|not.*enabled)/i, '该游戏已被停用'],
   [/unauthorized|not admin/i, '权限不足'],
   [/out of gas|gas.*exhausted/i, 'Gas 不足'],
+  // 🟢 2026-09-18 致命误导修复。此前只有下面那条 /insufficient fund/i，
+  //    它把**所有**含 "insufficient funds" 的错误都吞成同一句"Gas 费用不足"，于是：
+  //      · 会话账户没钱付 gas（CheckTx 拒收，链上不留痕）
+  //          → "spendable balance 0upaxi is smaller than 30000upaxi: insufficient funds"
+  //      · 合约内 PAXI 存款不够抽卡
+  //          → "Insufficient PAXI: expected 30000000, got 10000000"
+  //    两者在界面上长得一模一样，把排查方向整整带偏了一天。
+  //    现在按真实来源拆开，且**精确规则必须排在下面的通用规则之前**（命中即 return）。
+  [/spendable balance.*is smaller than/i, '手续费支付方余额不足：会话账户没有 PAXI，应由主钱包代付 gas（fee.granter 未生效）'],
+  [/insufficient fees/i, '手续费出价低于链上最低 gas 价（0.05 upaxi/gas），请调高 Gas Price'],
+  [/Insufficient PAXI:/i, '合约内 PAXI 存款不足（抽卡扣的是合约内部余额，请先在合约内充值）'],
   // 🟡 Gas/费用不足：银行模块 "insufficient funds"（主钱包/代付地址没有 PAXI 付 Gas）。
   //    此前被上面的 bankroll 正则抢标，现已让位给正确文案。
   [/insufficient fund/i, '余额不足（Gas 费用不足，请确认主钱包/代付地址有足够 PAXI）'],

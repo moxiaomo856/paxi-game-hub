@@ -415,6 +415,34 @@ Session.verifySeamless = async function (force) {
   };
 };
 
+/**
+ * 🟢 给 fee 挂上 gas 代付方（granter）—— 确定性策略，不依赖 verifySeamless 的 mode。
+ *
+ *    为什么必须这样：
+ *    会话地址只是一个一次性签名 key，余额恒为 0。一旦这笔交易没写 granter，
+ *    cosmos-sdk v0.53 的 ante handler 会在 CheckTx 阶段直接拒收，原文是
+ *      "spendable balance 0upaxi is smaller than 30000upaxi: insufficient funds"
+ *    而 CheckTx 失败【不写入交易索引】，所以链上查不到任何痕迹，前端只看到
+ *    一句被关键词表含糊过的"Gas 费用不足"。
+ *
+ *    策略：
+ *      - 接口明确说"从未授权"           → 不写（写了会报 feegrant not found）
+ *      - 接口说有授权 / 接口异常        → 一律写（授权在则正常代付；不在则由节点明确报错，
+ *                                         都属于"看得见的失败"，不会变成无声的 CheckTx 拒收）
+ */
+Session._attachGranter = async function (fee) {
+  const granter = state.wallet && state.wallet.address;
+  if (!granter) return fee;
+  try {
+    const fg = await Session.getFeegrant();
+    if (fg && !fg.unknown && !fg.exists) return fee;   // 确认从未开通过
+  } catch (e) {
+    console.warn('[无感] Feegrant 查询异常，按"授权存在"处理并写入 granter:', e && e.message);
+  }
+  fee.granter = granter;
+  return fee;
+};
+
 /** 「我的」页用的简化状态：链上 Feegrant 是否有效 */
 Session.hasFeegrant = async function () {
   if (!state.sessAddr || !state.wallet) return false;
@@ -538,11 +566,37 @@ Session._sendTxWithSessionCore = async function(messages, memo = '') {
     amount: [{ denom: plan.denom, amount: plan.amount }],
     gas: String(plan.gasLimit),
   };
-  if (v.mode === 'feegrant') fee.granter = state.wallet.address;
+  // 🔴 确定性修复（2026-09-18）：**只要主钱包可用，就无条件写 granter**。
+  //    会话地址余额恒为 0（它只是个一次性签名 key，从不持有资金）。一旦漏写
+  //    granter，cosmos-sdk v0.53 的 ante handler 会直接报
+  //      "spendable balance 0upaxi is smaller than 30000upaxi: insufficient funds"
+  //    而 CheckTx 阶段的失败【不会写入交易索引】—— 链上查不到任何痕迹，
+  //    前端只会看到一句被关键词表含糊过的"Gas 费用不足"。这一整天就是被它拖住的。
+  //    所以这里不看 mode 取值：mode 只是"是否有 better 选择"的建议，
+  //    写 granter 本身永远安全（授权不存在时节点会明确报 feegrant 错误，不会误扣钱）。
+  await Session._attachGranter(fee);
+
+  // 🔴 最后一道防线：没有 granter 且会话余额付不起时，这笔交易必定被 CheckTx 拒收，
+  //    而 CheckTx 失败**不会写进交易索引** —— 发出去等于石沉大海，链上查不到、
+  //    前端只剩一句含糊提示。这种情况直接本地拦下，把原因说清楚。
+  if (!fee.granter) {
+    let bal = '0';
+    try { bal = await Session.getSessionBalance(); } catch (e) { bal = '0'; }
+    if (BigInt(bal) < BigInt(plan.amount)) {
+      throw new Error(
+        `无感交易无法支付手续费：会话账户余额 ${fmtPaxi(bal)} PAXI < 需要 ${fmtPaxi(plan.amount)} PAXI，`
+        + '且主钱包没有建立 gas 代付授权（granter 为空）。请到「我的」页重新开启无感模式。',
+      );
+    }
+  }
   console.log(
-    `[无感] gas 支付方=${v.mode === 'feegrant' ? '主钱包代付 ' + state.wallet.address : '会话余额 ' + fmtPaxi(v.balance) + ' PAXI'}`
-    + ` | 手续费=${plan.amount}${plan.denom} gas=${plan.gasLimit} @${plan.gasPrice}/gas (链下限)`,
+    `[无感] gas 支付方=${fee.granter ? '主钱包代付 ' + fee.granter : '⚠️ 会话自付（余额为 0，必被 CheckTx 拒收）'}`
+    + ` | 手续费=${plan.amount}${plan.denom} gas=${plan.gasLimit} @${plan.gasPrice}/gas (链下限)`
+    + ` | 判定模式=${v.mode}`,
   );
+  if (!fee.granter) {
+    console.warn('[无感] 本次交易没有 granter，会话余额为 0 → 预计 CheckTx 阶段被拒且链上不留痕');
+  }
 
   // 4. 离线签名（不连 RPC）
   const wallet = await DirectSecp256k1Wallet.fromKey(state.sessPriv, NETWORK.prefix);
