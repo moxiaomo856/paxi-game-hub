@@ -580,51 +580,65 @@ async function approvePrc20(tokenContract, amount, spender) {
   });
 }
 
-/** 通用：账户信息 → gas → SignDoc → 钱包签 → 广播 */
-// 🟢 无感签名备用：支持 opts.sender（默认 state.wallet.address）
-async function sendTx(messages, memo = '', opts = {}) {
-  const senderAddr = opts.sender || state.wallet.address;
+/**
+ * 通用：构造 + 钱包签名 + 广播
+ * ✅ 完全复刻老板旧版 buildAndSendTx（生产验证），移除所有动态 simulate
+ * ✅ 固定 600000 gas + 0.05 upaxi/gas = 30000 upaxi fee
+ * ✅ 公钥直接从钱包 paxihub.getAddress() 拿（Uint8Array），不用 state 里缓存的
+ *
+ * @param {Array} messages  Any[] protobuf 消息数组
+ * @param {string} memo    备注
+ * @returns {Promise<string>} txhash
+ */
+async function sendTx(messages, memo = '') {
+  // 1. chainId
+  const chainId = await fetch(`${NETWORK.rpc}/status`)
+    .then((r) => r.json())
+    .then((d) => d.result.node_info.network);
+
+  // 2. sender — 直接从 paxihub 拿（和老板旧版一致，确保 public_key 是 Uint8Array）
+  const sender = await window.paxihub.paxi.getAddress();
+  const senderAddr = sender.address;
+
+  // 3. account + sequence（老板旧版 buildCommon）
   const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${senderAddr}`);
   if (!acctRes.ok) throw new Error(`获取账户失败 HTTP ${acctRes.status}`);
   const acctData = await acctRes.json();
   const acct = acctData.account?.base_account || acctData.account;
   const accountNumber = Number(acct.account_number);
   const sequence = Number(acct.sequence);
-  const chainId = await fetchChainId();
 
-  // gas：先 simulate，失败回退静态估算
-  // 注：不能用 messages[0].typeUrl 判断是否 Swap —— 前端只构造 MsgExecuteContract
-  //     （Stargate 的 MsgSwap 是合约内部子消息，前端不可见），所以 typeUrl 恒为
-  //     /cosmwasm.wasm.v1.MsgExecuteContract。而 Swap 在合约内会展开成
-  //     increase_allowance + Stargate MsgSwap + reply，实际 gas 明显高于普通交易。
-  //     故回退值统一取 1500000：普通交易够用，Swap 也覆盖得住。
-  //     （回退只在 simulate 失败时生效；simulate 成功时以实际值 ×1.2 为准，不会多扣费）
-  let gas = 1500000;
-  try {
-    gas = Math.floor((await simulateGas(messages, memo, accountNumber, sequence, state.wallet)) * 1.2);
-  } catch (e) {
-    console.warn('[Tx] simulate 失败，用静态估算', e.message);
-  }
-
-  const priceMatch = /^([\d.]+)\s*upaxi$/i.exec(NETWORK.gasPrice);
-  const price = priceMatch ? parseFloat(priceMatch[1]) : 0.025;
-
+  // 4. TxBody
   const txBody = PaxiCosmJS.TxBody.fromPartial({ messages, memo });
+
+  // 5. Fee — 老板旧版固定值（30000 upaxi + 600000 gas）
+  const gasPrice = 0.05;
+  const gasLimit = 600_000;
+  const feeAmount = Math.ceil(gasLimit * gasPrice);
+  const fee = {
+    amount: [PaxiCosmJS.coins(String(feeAmount), NETWORK.denom)[0]],
+    gasLimit,
+  };
+
+  // 6. PubKey Any — 关键！用 sender.public_key（paxihub 返回的是 Uint8Array）
+  //    老板旧版：new Uint8Array(sender.public_key)
+  const pubkeyBytes = new Uint8Array(sender.public_key);
+  const pubkeyAny = {
+    typeUrl: '/cosmos.crypto.secp256k1.PubKey',
+    value: PaxiCosmJS.PubKey.encode({ key: pubkeyBytes }).finish(),
+  };
+
+  // 7. AuthInfo
   const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
     signerInfos: [{
-      publicKey: {
-        typeUrl: '/cosmos.crypto.secp256k1.PubKey',
-        value: PaxiCosmJS.PubKey.encode({ key: getPubKeyBytes(state.wallet) }).finish(),
-      },
+      publicKey: pubkeyAny,
       modeInfo: { single: { mode: 1 } },
       sequence: BigInt(sequence),
     }],
-    fee: {
-      amount: [PaxiCosmJS.coins(Math.max(1, Math.floor(gas * price)).toString(), NETWORK.denom)[0]],
-      gasLimit: BigInt(gas),
-    },
+    fee,
   });
 
+  // 8. SignDoc
   const signDoc = PaxiCosmJS.SignDoc.fromPartial({
     bodyBytes: PaxiCosmJS.TxBody.encode(txBody).finish(),
     authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
@@ -632,34 +646,37 @@ async function sendTx(messages, memo = '', opts = {}) {
     accountNumber: BigInt(accountNumber),
   });
 
-  const result = await window.paxihub.paxi.signAndSendTransaction({
+  // 9. 让钱包签名（DApp 指南 3.4 格式）
+  const txObj = {
     bodyBytes: toBase64(signDoc.bodyBytes),
     authInfoBytes: toBase64(signDoc.authInfoBytes),
     chainId,
     accountNumber: signDoc.accountNumber.toString(),
-  });
+  };
+  const result = await window.paxihub.paxi.signAndSendTransaction(txObj);
   if (!result || !result.success) throw new Error(result?.message || '钱包签名失败或被拒绝');
 
+  // 10. 组装 TxRaw + 广播
+  const sigBytes = Uint8Array.from(atob(result.success), (c) => c.charCodeAt(0));
   const txRaw = PaxiCosmJS.TxRaw.fromPartial({
     bodyBytes: signDoc.bodyBytes,
     authInfoBytes: signDoc.authInfoBytes,
-    signatures: [fromBase64(result.success)],
+    signatures: [sigBytes],
   });
+  const base64Tx = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
 
   const bc = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tx_bytes: toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish()),
-      mode: 'BROADCAST_MODE_SYNC',
-    }),
+    body: JSON.stringify({ tx_bytes: base64Tx, mode: 'BROADCAST_MODE_SYNC' }),
   }).then((r) => r.json());
 
+  // 11. 检查结果
   const tx = bc.tx_response || bc;
-  if (tx.code !== 0) {
+  if (tx.code && tx.code !== 0) {
     throw new Error(mapError(tx.code, tx.raw_log));
   }
-  if (!tx.txhash) throw new Error(mapError(tx.code, bc.message || tx.raw_log));
+  if (!tx.txhash) throw new Error(mapError(tx.code || 13, bc.message || tx.raw_log));
   return tx.txhash;
 }
 
