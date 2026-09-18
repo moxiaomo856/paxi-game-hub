@@ -13,15 +13,34 @@
  * 依赖 window.nobleSecp / nobleSha256 / nobleRipemd160（index.html 里的 ESM 注入）
  */
 
-// noble 是异步 ESM，等它就绪
+// noble 是异步 ESM，等它就绪 + 🔴 双保险注入 hmacSha256Sync
+//   index.html 的 ESM 已经注入了一遍；这里再加一次运行时 fallback，
+//   防止 github pages 缓存旧版 HTML 时 nobleSecp.sign() 抛 "etc.hmacSha256Sync not set"。
 function waitForNoble(timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
-    if (window.nobleSecp && window.nobleSha256 && window.nobleRipemd160) return resolve();
+    const ready = () => {
+      if (!window.nobleSecp || !window.nobleSha256 || !window.nobleRipemd160) return false;
+      // 🔴 运行时 fallback：如果 index.html 没注入 hmac，这里补上
+      if (!window.nobleSecp.etc?.hmacSha256Sync) {
+        // 动态 import hmac（ESM 模块异步加载）
+        import('https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/hmac/+esm')
+          .then(({ hmac }) => {
+            window.nobleSecp.etc.hmacSha256Sync = (key, ...msgs) =>
+              hmac(window.nobleSha256, key, window.nobleSecp.etc.concatBytes(...msgs));
+            console.warn('[noble] hmacSha256Sync fallback injected');
+            resolve();
+          })
+          .catch(() => resolve()); // hmac 导入也失败就只能让后续 sign() 自己报错了
+      } else {
+        resolve();
+      }
+      return true;
+    };
+    if (ready()) return;
     const t0 = Date.now();
     const timer = setInterval(() => {
-      if (window.nobleSecp && window.nobleSha256 && window.nobleRipemd160) {
+      if (ready()) {
         clearInterval(timer);
-        resolve();
       } else if (Date.now() - t0 > timeoutMs) {
         clearInterval(timer);
         reject(new Error('加密库加载超时，请检查网络'));
@@ -213,26 +232,18 @@ const Session = {
    */
   async ensure() {
     await waitForNoble();
-    if (!(await this.load())) {
-      // 初次创建：必须设置密码，否则无法安全保存私钥
-      const pw = await promptSecret('设置会话密码', '用于本地加密会话私钥（密码不会上传，丢失将无法恢复）。');
-      if (!pw) throw new Error('需要密码才能创建会话');
-      await this.generate(pw);
-    } else if (state.encBlob && !state.sessPriv) {
-      // 已存在加密私钥：解锁
-      const pw = await promptSecret('输入会话密码', '解密本地会话私钥以继续。');
-      if (!pw) throw new Error('需要密码才能解锁会话');
-      const ok = await this.unlock(pw);
-      if (!ok) throw new Error('会话密码错误');
-    } else if (state.legacyPlain && state.sessPriv) {
-      // 历史明文存储：借这次机会升级为加密（用户可取消，则维持明文）
-      const pw = await promptSecret('升级会话加密', '检测到明文存储的会话私钥，建议设置密码加密。');
-      if (pw) {
-        const blob = await encryptPriv(state.sessPriv, pw);
-        localStorage.setItem(LS.sessPriv, blob);
-        state.encBlob = blob;
-        state.legacyPlain = false;
+    const loaded = await this.load();
+
+    if (!loaded || state.encBlob) {
+      // 🔴 零密码策略（老板旧版模式）：
+      //   - 从未创建过会话 → 直接 generate(null)，明文存 localStorage
+      //   - 旧版用户有加密 blob（设过密码）→ 清掉密文重新生成，彻底告别密码
+      if (state.encBlob) {
+        console.warn('[Session] 检测到旧版加密会话，自动清除并重新生成（零密码模式）');
+        localStorage.removeItem(LS.sessPriv);
+        state.encBlob = null;
       }
+      await this.generate(null);  // null = 明文，不加密
     }
 
     const chain = await this.syncFromChain();

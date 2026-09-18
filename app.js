@@ -455,17 +455,31 @@ function renderWallet() {
 
   const tokens = state.tokens.length ? state.tokens : [NATIVE_TOKEN];
   const t = findToken(tokens, state.selToken);
-  const options = tokens.map((x) => `
-    <option value="${x.key}"${x.key === t.key ? ' selected' : ''}>
-      ${esc(x.symbol)}${x.type === 'cw20' ? (hubLang() === 'en' ? ' (PRC-20)' : '（PRC-20）') : ''}
-    </option>`).join('');
+
+  // 🔴 Tab 按钮：PAXI / TKCC 硬绑 + 手动添加的代币
+  const paxiTok = tokens.find((x) => x.type === 'native');
+  const tkccTok = tokens.find((x) => x.symbol === 'TKCC');
+  const otherToks = tokens.filter((x) => x !== paxiTok && x !== tkccTok);
+
+  const tabBtn = (tok, label) => tok
+    ? `<button class="btn ${tok.key === t.key ? 'btn-primary' : 'btn-ghost'}" onclick="switchToken('${tok.key}')" style="flex:1;margin-right:6px">${label}</button>`
+    : '';
+  const otherOpts = otherToks.length ? otherToks.map((x) =>
+    `<option value="${x.key}"${x.key === t.key ? ' selected' : ''}>${esc(x.symbol)}</option>`).join('') : '';
+  const otherSelect = otherToks.length
+    ? `<select class="input" id="tokenSelOther" style="margin-top:6px" onchange="switchToken(this.value)">${otherOpts}</select>`
+    : '';
 
   main.innerHTML = `
     <div class="card">
       <div class="card-title">${hubT('w_bal_title')}</div>
       <div class="field">
         <label class="label">${hubT('sel_token')}</label>
-        <select class="input" id="tokenSel">${options}</select>
+        <div style="display:flex">
+          ${tabBtn(paxiTok, 'PAXI')}
+          ${tabBtn(tkccTok, 'TKCC')}
+        </div>
+        ${otherSelect}
       </div>
       <div class="kv"><span class="k">${hubT('wallet_bal')}</span><span class="v" id="wBal">${state.walletBal} ${esc(t.symbol)}</span></div>
       <div class="kv"><span class="k">${hubT('incontract_bal')}</span><span class="v" id="gBal2">${state.gameBal} ${esc(t.symbol)}</span></div>
@@ -531,7 +545,6 @@ function renderWallet() {
   document.querySelector('[data-wd="all"]').onclick = () => {
     $('wdAmt').value = state.gameBal;
   };
-  $('tokenSel').onchange = (e) => switchToken(e.target.value);
   $('btnAddToken').onclick = showAddToken;
   $('btnDeposit').onclick = doDeposit;
   $('btnWithdraw').onclick = doWithdraw;
@@ -621,6 +634,9 @@ async function loadTokens() {
   } catch (e) {
     state.tokens = [NATIVE_TOKEN];
   }
+  // 🔴 默认选 TKCC（游戏主用 TKCC），找不到才回退 PAXI
+  const tk = state.tokens.find((t) => t.symbol === 'TKCC');
+  state.selToken = tk ? tk.key : NATIVE_TOKEN.key;
   return state.tokens;
 }
 
