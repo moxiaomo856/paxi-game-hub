@@ -704,6 +704,33 @@
       }
     } catch (e) { showToast(t('insufficient'), 'error'); return; }
 
+    // 🟢 预检「合约内 PAXI 存款」：
+    //    draw_pack 的 PAXI 费用是从合约内部账本扣的（不是钱包余额），
+    //    不查这一项的话，三连抽（30 PAXI）在只有 10 PAXI 存款时照样会把交易发出去，
+    //    被合约拒绝后报错还容易被误读成「gas 费不足」。
+    //    这里本地拦下来，直接告诉用户差多少、要充多少。
+    try {
+      const pb = await queryContract({ balance: { address: state.wallet.address, token: null } });
+      const havePaxi = BigInt(pb.amount || '0');
+      if (havePaxi < paxiRaw) {
+        const need = (Number(paxiRaw) / 1e6).toFixed(2);
+        const have = (Number(havePaxi) / 1e6).toFixed(2);
+        const lack = ((Number(paxiRaw) - Number(havePaxi)) / 1e6).toFixed(2);
+        showToast(
+          `合约内 PAXI 不足：${pack3 ? '三连抽' : '单抽'}需要 ${need} PAXI，当前只有 ${have} PAXI，请先充值至少 ${lack} PAXI`,
+          'error',
+        );
+        const log = $('sgDrawLog');
+        if (log) {
+          log.innerHTML = `<div class="hint err">❌ 合约内 PAXI 不足：需要 ${need} PAXI，当前 ${have} PAXI，请先充值 ${lack} PAXI</div>`;
+        }
+        return;
+      }
+    } catch (e) {
+      // 查不到时不阻断（避免误伤），只留痕
+      console.warn('[doDraw] 合约内 PAXI 余额预检失败，跳过:', e && e.message);
+    }
+
     showBusy(t('draw_doing'));
     try {
       // 审计 #14：tap_index 上界以合约 sanguo_config 的 tap_addresses 数量为准

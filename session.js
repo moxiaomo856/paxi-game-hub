@@ -425,20 +425,30 @@ Session.verifySeamless = async function (force) {
  *    而 CheckTx 失败【不写入交易索引】，所以链上查不到任何痕迹，前端只看到
  *    一句被关键词表含糊过的"Gas 费用不足"。
  *
- *    策略：
- *      - 接口明确说"从未授权"           → 不写（写了会报 feegrant not found）
- *      - 接口说有授权 / 接口异常        → 一律写（授权在则正常代付；不在则由节点明确报错，
- *                                         都属于"看得见的失败"，不会变成无声的 CheckTx 拒收）
+ *    策略（🔴 已改为无条件写入）：
+ *      只要主钱包地址存在就写 granter，不再依赖任何前置查询的结果。
+ *      理由：这个节点的 feegrant 列表接口恒返回空、单点接口偶发超时，
+ *      任何"先查再决定"的写法都有可能在抖动时漏写 granter——
+ *      而漏写的代价是【无声的 CheckTx 拒收】，链上不留痕迹，最难排查。
+ *
+ *      若授权其实不存在，节点会明确回 "feegrant not found"，
+ *      这是"看得见的失败"，比 "insufficient funds"（会被误读成余额不足）好得多。
  */
 Session._attachGranter = async function (fee) {
   const granter = state.wallet && state.wallet.address;
   if (!granter) return fee;
+
+  // 只用于日志，不参与决策（查询失败也照写）
   try {
-    const fg = await Session.getFeegrant();
-    if (fg && !fg.unknown && !fg.exists) return fee;   // 确认从未开通过
+    const fg = await Promise.race([
+      Session.getFeegrant(),
+      new Promise((r) => setTimeout(() => r({ unknown: true, reason: '查询超时' }), 6000)),
+    ]);
+    console.log(`[无感] Feegrant 链上状态：${fg && fg.ok ? '有效（代付可用）' : (fg && fg.unknown ? '未知（' + fg.reason + '）' : '无效')}`);
   } catch (e) {
-    console.warn('[无感] Feegrant 查询异常，按"授权存在"处理并写入 granter:', e && e.message);
+    console.warn('[无感] Feegrant 查询异常（不影响 granter 写入）:', e && e.message);
   }
+
   fee.granter = granter;
   return fee;
 };
@@ -598,21 +608,63 @@ Session._sendTxWithSessionCore = async function(messages, memo = '') {
     console.warn('[无感] 本次交易没有 granter，会话余额为 0 → 预计 CheckTx 阶段被拒且链上不留痕');
   }
 
-  // 4. 离线签名（不连 RPC）
+  // 4. 离线签名（不连 RPC，也【不走】SigningStargateClient —— 原因见下）
   const wallet = await DirectSecp256k1Wallet.fromKey(state.sessPriv, NETWORK.prefix);
-  const client = await SigningStargateClient.offline(wallet, {
-    gasPrice: GasPrice.fromString(`${plan.gasPrice}${NETWORK.denom}`),
-  });
-  const { signed, signature } = await client.sign(
-    state.sessAddr, messages, fee, memo,
-    { accountNumber, sequence, chainId },          // explicitSignerData：完全离线
-  );
+  const sessAccount = (await wallet.getAccounts())[0];
+  const sessPubKey = sessAccount && sessAccount.pubkey;      // 33 字节压缩格式
+  if (!sessPubKey || sessPubKey.length !== 33) {
+    throw new Error('会话公钥异常（期望 33 字节压缩格式）');
+  }
 
-  // 5. 组装 TxRaw 并 base64 编码（用 UMD 的 TxRaw，已验证可用）
+  // 🔴 这里【不能】用 SigningStargateClient.sign()，两个致命原因（都已被实验证实）：
+  //    ① 它内部走 Registry 编码消息，而默认 Registry 没有 wasm 类型，
+  //       传入 bytes 形式的 MsgExecuteContract 会直接抛 "Unregistered type url"，
+  //       会话通道从未真正走到过签名这一步，全部静默 fallback 到了主钱包。
+  //    ② 即使编码过去，SignerData.pubKey 是可选字段，不传则 SignerInfo 里没有
+  //       public_key；会话账户从未上过链（链上 pub_key=null），节点验签时两头
+  //       都拿不到 pubkey → 报 "invalid pubkey"，且 CheckTx 拒收不留任何痕迹。
+  //    所以这里手工构造全部字节：全部用 UMD 已在链上验证过的编码器，
+  //    签名用 DirectSecp256k1Wallet.signDirect（noble，纯本地）。
+  //    ⚠️ simulate 会跳过验签层，对照实验测不到这一层——这是它漏网的原因。
+  const pubKeyAny = {
+    typeUrl: '/cosmos.crypto.secp256k1.PubKey',
+    value: new Uint8Array([0x0a, sessPubKey.length, ...sessPubKey]), // proto field1(bytes)
+  };
+
+  const bodyBytes = PaxiCosmJS.TxBody.encode(
+    PaxiCosmJS.TxBody.fromPartial({ messages, memo }),
+  ).finish();
+
+  const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
+    signerInfos: [{
+      publicKey: pubKeyAny,                          // 🔴 必须带！否则链上 invalid pubkey
+      modeInfo: { single: { mode: 1 } },             // SIGN_MODE_DIRECT
+      sequence: BigInt(sequence),
+    }],
+    fee: {
+      amount: fee.amount,
+      gasLimit: BigInt(fee.gas),
+      granter: fee.granter || '',                    // 主钱包代付（Feegrant）
+      payer: '',
+    },
+  });
+  const authInfoBytes = PaxiCosmJS.AuthInfo.encode(authInfo).finish();
+
+  // SignDoc 用普通对象传给钱包签名器（CDN proto-signing 内部会做 fromPartial 归一化，
+  // 不依赖 UMD/CDN 两套生成代码的 int64 类型差异）
+  const { signature } = await wallet.signDirect(state.sessAddr, {
+    bodyBytes,
+    authInfoBytes,
+    chainId,
+    accountNumber: accountNumber,                  // number，signDirect 内部归一化
+  });
+  if (!signature || !signature.signature) throw new Error('会话签名失败（signDirect 无返回）');
+
+  // 5. 组装 TxRaw 并 base64 编码（签名对应的就是上面的 bodyBytes/authInfoBytes）
   const txRaw = PaxiCosmJS.TxRaw.fromPartial({
-    bodyBytes: signed.bodyBytes,
-    authInfoBytes: signed.authInfoBytes,
-    signatures: [fromBase64(signature.signature)], // CosmJS 返回的 signature 是 base64 串
+    bodyBytes,
+    authInfoBytes,
+    signatures: [fromBase64(signature.signature)],   // CosmJS 返回的 signature 是 base64 串
   });
   const txBase64 = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
 
