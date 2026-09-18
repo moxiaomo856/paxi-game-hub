@@ -938,6 +938,11 @@
   // ============================================================
   async function renderAiBattle(body) {
     await loadParams();
+    // 🟢 修复：必须加载卡牌才能判断是否满足合约 ai_battle 要求的 ≥3 张门槛，
+    //    否则无卡也能发起交易（并弹钱包），与合约 SanguoNeed3Cards 报错对不齐。
+    if (state.wallet) await loadSanguoCards();
+    const cardCount = userCards.length;
+    const enoughCards = cardCount >= 3;
     body.innerHTML = `
       <div class="card">
         <div class="card-title">⚔️ ${t('ai_title')}</div>
@@ -947,6 +952,7 @@
         <div class="kv"><span class="k">${t('ai_today')}</span><span class="v" id="sgAiToday">—</span></div>
         <div class="kv"><span class="k">${t('ai_limit')}</span><span class="v" id="sgAiLimit">—</span></div>
         <div class="kv"><span class="k">${t('win_rate')}</span><span class="v" id="sgAiRate">—</span></div>
+        <div class="kv"><span class="k">我的卡牌</span><span class="v" id="sgAiCards">${cardCount} / 3</span></div>
       </div>
       <div class="card">
         <div class="card-title">${t('ai_diff')}</div>
@@ -958,7 +964,8 @@
             return `<option value="${d}">${t('ai_diff')} ${d} · ${t('ai_fee')} ${fee} · ${t('ai_reward')} ${reward}</option>`;
           }).join('')}
         </select>
-        <button class="btn btn-primary" id="sgAiGo" style="margin-top:10px;width:100%">${t('ai_title')}</button>
+        <button class="btn btn-primary" id="sgAiGo" style="margin-top:10px;width:100%" ${enoughCards ? '' : 'disabled'}>${enoughCards ? t('ai_title') : '需至少 3 张卡牌'}</button>
+        ${enoughCards ? '' : '<div class="hint err" style="margin-top:8px">❌ AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。</div>'}
       </div>
       <div id="sgAiLog"></div>`;
     if (state.wallet) {
@@ -977,6 +984,17 @@
   async function doAiBattle() {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     try { await loadParams(); } catch (e) { showToast(t('params_err'), 'error'); return; }
+    // 🟢 门槛校验：合约 ai_battle 要求 ≥3 张卡，避免无卡也能发交易并弹钱包
+    if (!userCards || userCards.length < 3) {
+      try { await loadSanguoCards(); } catch (e) {}
+      if (!userCards || userCards.length < 3) {
+        const msg = 'AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。';
+        const logEl = $('sgAiLog');
+        if (logEl) logEl.innerHTML = `<div class="hint err">❌ ${esc(msg)}</div>`;
+        showToast(msg, 'error');
+        return;
+      }
+    }
     const p = requireParams();
     const diff = Number(($('sgAiDiff') || {}).value || 1);
     const diffIdx = diff - 1;

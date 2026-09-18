@@ -334,6 +334,51 @@ Session.hasFeegrant = async function() {
   }
 };
 
+// 🟢 同步版 Feegrant 快检（供 shared.js::execAnyContract 的 useSession 即时判断）
+//    只查本地 localStorage 的 7 天过期标记，不触发任何链上查询 / 弹窗，
+//    用于"是否值得尝试无感通道"的快筛；链上有效性由 Feegrant ante handler 兜底。
+Session.hasFeegrantFlag = function () {
+  try {
+    const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
+    if (!exp) return false;                     // 从没点过"开启无感模式"
+    if (exp < Date.now()) {                     // 过期则清掉，避免下次误判
+      localStorage.removeItem('paxi_hub_feegrant_expires');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
+// 🟢 自动确保无感模式可用（本页只尝试一次，失败静默回落主钱包通道）
+//    用于游戏写操作前：若会话未注册或 Feegrant 未建立，自动调用 enableSeamlessMode
+//    （首次会弹 1~2 次主钱包完成 RegisterSession + MsgGrantAllowance，之后即免密）。
+//    若自动开通失败（用户取消 / 链不支持 feegrant），置 _seamlessFailedOnce 本页不再重试，
+//    让调用方走主钱包通道（仍可用，只是要弹签名）。
+Session._seamlessFailedOnce = false;
+Session.ensureSeamless = async function () {
+  if (Session._seamlessFailedOnce) return Session.hasFeegrantFlag();
+  if (Session.hasFeegrantFlag()) return true;   // 已开通，直接放行
+  try {
+    if (!state.connected || !state.wallet) return false;
+    // 确保会话密钥已注册（未注册会让 enableSeamlessMode 先做一次 RegisterSession）
+    const r = await Session.ensure();
+    if (!r.ok && r.needRegister) {
+      await Session.enableSeamlessMode();       // 注册 + 授权（弹 1~2 次）
+    } else if (!Session.hasFeegrantFlag()) {
+      await Session.enableSeamlessMode();       // 仅补 Feegrant 授权
+    }
+    const got = Session.hasFeegrantFlag();
+    if (!got) Session._seamlessFailedOnce = true; // 开了却没拿到标记（链不支持？）本页不再重试
+    return got;
+  } catch (e) {
+    Session._seamlessFailedOnce = true;          // 用户取消或失败，本页不再自动重试
+    console.warn('[ensureSeamless] 自动开通失败，将走主钱包通道:', e && e.message);
+    return false;
+  }
+};
+
 // 🔴🔴🔴 关键：用会话签名器发 TX，Feegrant 通过 StdFee.granter 生效
 //
 // 为什么能绕过弹钱包？

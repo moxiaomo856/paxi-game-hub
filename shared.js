@@ -363,19 +363,24 @@ const ERROR_KEYWORDS = [
 ];
 
 function mapError(code, rawLog) {
-  if (code !== undefined && code !== 0 && ERROR_CODE_MAP[code]) {
-    return `${ERROR_CODE_MAP[code]}（代码 ${code}）`;
-  }
+  // 🟢 已知错误码不再吞掉原始 raw_log：CosmWasm 执行回退统一返回代码 5，
+  //    真实错误（如 SanguoMigrationNotAllowed / invalid nonce / already migrated）
+  //    藏在 raw_log 里。把 raw_log 一并展示，便于定位（例如老合约迁移"消息序列化失败"实为白名单/已迁移）。
+  const base = (code !== undefined && code !== 0 && ERROR_CODE_MAP[code])
+    ? `${ERROR_CODE_MAP[code]}（代码 ${code}）`
+    : null;
   if (rawLog && typeof rawLog === 'string') {
     for (const [re, msg] of ERROR_KEYWORDS) {
-      if (re.test(rawLog)) return msg;
+      if (re.test(rawLog)) return base ? `${base}：${msg}` : msg;
     }
-    // 合约自定义错误通常是 ...: invalid nonce 这种尾部信息
-    const m = /generic error|query wasm contract failed|execute wasm contract failed/i.test(rawLog);
-    const cleaned = rawLog.replace(/^.*?:\s*/, '').slice(0, 120);
-    if (!m && cleaned) return cleaned;
+    const cleaned = rawLog
+      .replace(/^.*?:\s*/, '')          // 去掉 "execute wasm contract failed: " 前缀
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+    if (cleaned) return base ? `${base}：${cleaned}` : cleaned;
   }
-  return rawLog ? String(rawLog).slice(0, 160) : '未知错误';
+  return base || (rawLog ? String(rawLog).slice(0, 160) : '未知错误');
 }
 
 // ============================================================
@@ -533,15 +538,25 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
     'sanguo_claim_pvp_reward',
     'sanguo_create_royale', 'sanguo_join_royale', 'sanguo_settle_royale',
     'sanguo_claim_royale_reward',
-    // 🔴 sanguo_migrate_from_old 不进白名单：一次性操作，走主钱包通道（老板旧版已验证）
+    // 🟢 老合约迁移也走无感通道：合约 migrate_from_old 同样走 sanguo_auth 会话验签
+    //    （action="migrate", spend=0），与抽卡/对战同机制，应享受免密。
+    'sanguo_migrate_from_old',
   ]);
   const variantKey = Object.keys(msg)[0] || '';
-  // 🔴 修复（致命）：PAXI LCD 不支持 feegrant REST，hasFeegrant() 永远 false → 全 fallback 主钱包
-  //    改成：白名单 + 本地会话密钥存在（trust local state）就走无感通道
-  //    如果真没 feegrant 或 CosmJS 加载失败，sendTxWithSession 会抛错
-  //    → catch 住自动 fallback 到主钱包 sendTx
-  const useSession = SEAMLESS_VARIANTS.has(variantKey)
-    && state.sessPriv && state.sessAddr && state.wallet;
+  const isSeamlessVariant = SEAMLESS_VARIANTS.has(variantKey);
+
+  // 🟢 自动确保无感模式：命中无感白名单时，先尝试一键开通
+  //    （首次会弹 1 次主钱包完成会话注册 + Feegrant 授权，之后即免密）。
+  //    开通失败不影响主流程，下方 useSession 自动降级为主钱包通道。
+  if (isSeamlessVariant) {
+    try { await Session.ensureSeamless(); } catch (e) { /* 失败时走主钱包 */ }
+  }
+
+  // 🟢 仅当 feegrant 本地标记仍有效才走无感通道，避免无谓地发起一次注定失败的会话签名
+  //    （未开启/已过期的，直接走主钱包；ensureSeamless 已在本页首次操作时尝试自动补开）。
+  const useSession = isSeamlessVariant
+    && state.sessPriv && state.sessAddr && state.wallet
+    && Session.hasFeegrantFlag();
 
   const sender = useSession ? state.sessAddr : state.wallet.address;
 
