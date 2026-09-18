@@ -532,12 +532,16 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
     'sanguo_create_pvp', 'sanguo_accept_pvp', 'sanguo_cancel_pvp',
     'sanguo_claim_pvp_reward',
     'sanguo_create_royale', 'sanguo_join_royale', 'sanguo_settle_royale',
-    'sanguo_claim_royale_reward', 'sanguo_migrate_from_old',
+    'sanguo_claim_royale_reward',
+    // 🔴 sanguo_migrate_from_old 不进白名单：一次性操作，走主钱包通道（老板旧版已验证）
   ]);
   const variantKey = Object.keys(msg)[0] || '';
+  // 🔴 修复（致命）：PAXI LCD 不支持 feegrant REST，hasFeegrant() 永远 false → 全 fallback 主钱包
+  //    改成：白名单 + 本地会话密钥存在（trust local state）就走无感通道
+  //    如果真没 feegrant 或 CosmJS 加载失败，sendTxWithSession 会抛错
+  //    → catch 住自动 fallback 到主钱包 sendTx
   const useSession = SEAMLESS_VARIANTS.has(variantKey)
-    && state.sessPriv && state.sessAddr && state.wallet
-    && await Session.hasFeegrant();
+    && state.sessPriv && state.sessAddr && state.wallet;
 
   const sender = useSession ? state.sessAddr : state.wallet.address;
 
@@ -553,7 +557,11 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
   }];
 
   if (useSession) {
-    return Session.sendTxWithSession(messages, memo);
+    try {
+      return await Session.sendTxWithSession(messages, memo);
+    } catch (e) {
+      console.warn('[execAnyContract] 无感通道失败，自动 fallback 主钱包:', e && e.message);
+    }
   }
   return sendTx(messages, memo);
 }

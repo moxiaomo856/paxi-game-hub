@@ -311,23 +311,25 @@ Session.getSessionClient = async function() {
 // 查询 Feegrant 是否仍有效
 // Feegrant: granter = 主钱包, grantee = 会话地址
 // 链上路径: /cosmos/feegrant/v1beta1/allowance/{granter}/{grantee}
+// 查询 Feegrant 是否仍有效
+// 🔴 PAXI LCD 节点不支持 /cosmos/feegrant/v1beta1/* REST 接口（返回 501），
+//    所以改用本地 localStorage + 合约端 session_info 双重验证
+//    （合约的 session_info 查得到说明会话已注册，但不检查 feegrant——
+//     feegrant 是链上 ante handler 层的 gas 代付授权，合约看不到）
 Session.hasFeegrant = async function() {
   if (!state.sessAddr || !state.wallet) return false;
   try {
-    const r = await fetchAPI(`/cosmos/feegrant/v1beta1/allowance/${state.wallet.address}/${state.sessAddr}`);
-    if (!r || !r.allowance) return false;
-    // BasicAllowance / PeriodicAllowance 都有 expiration 字段
-    const exp = r.allowance.basic?.expiration || r.allowance.periodic?.expiration;
-    if (exp) {
-      const expTs = new Date(exp).getTime();
-      if (expTs < Date.now()) return false;
-    }
-    // spendLimit 检查（至少得有 upaxi 条目）
-    const spendLimit = r.allowance.basic?.spend_limit || r.allowance.periodic?.spend_limit;
-    if (spendLimit && spendLimit.length > 0) return true;
-    return true;  // 无 spendLimit 表示不限额
+    const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
+    if (!exp) return false;                    // 根本没点过"开启无感模式"
+    if (exp < Date.now()) return false;        // 过期了
+
+    // 再用合约 session_info 做二次确认（确认会话在链上真的存在且未过期）
+    const info = await Session.syncFromChain();
+    if (!info || !info.registered || info.expired) return false;
+
+    return true;
   } catch (e) {
-    console.warn('Feegrant 查询失败:', e.message);
+    console.warn('[hasFeegrant] 检查失败，保守认为未开启:', e.message);
     return false;
   }
 };
