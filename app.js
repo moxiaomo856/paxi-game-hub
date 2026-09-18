@@ -1053,6 +1053,11 @@ async function doPlay() {
       nonce: state.sessNonce,
     });
     const sig = await Session.sign(msg);
+    // 🟢 与 sanguoExec 对齐：空签名守卫（noble 2.1.0 返回 Signature 对象，必须 toCompactRawBytes，
+    //   否则签名为空 → 带 signature:\"\" 的必败交易被推给钱包）。拦截就地报错，绝不静默发坏交易。
+    if (!sig || !/^[0-9a-f]{128}$/.test(sig)) {
+      throw new Error('会话签名异常（签名为空）——通常是浏览器缓存了旧版脚本，请强制刷新页面（或清除缓存）后重试');
+    }
     log(hubT('bet_log')(amt, state.sessNonce), 'info');
 
     const hash = await execContract({

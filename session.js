@@ -1,7 +1,9 @@
 // 本轮改动（A1+A3+A4+E+R12）：getSessionClient 直接传 Uint8Array 并缓存 + 传 gasPrice；
 //   enableSeamlessMode 改用 cosmjs-types Feegrant；sendTxWithSession 修正 Feegrant
 //   （granter 必须写进 StdFee，而非 signAndBroadcast 的第 6 个参数——E 修复）；
-//   R12：Session.sign 改 async + await（@noble/secp256k1@2.x 的 sign 返回 Promise，否则签名为空串）。
+//   R12：Session.sign 改 async + await；🟢 第十六轮（2026-09-18）真根因修复：
+//   noble v2.1.0 sign() 返回 Signature 对象（非 Uint8Array），必须 toCompactRawBytes()
+//   再转 hex —— 详见 Session.sign 内注释。
 /**
  * 会话密钥 —— 生成 / 存储 / 注册 / 签名 / nonce 链上同步
  *
@@ -211,14 +213,19 @@ const Session = {
 
   /**
    * 裸 SHA-256 + secp256k1，返回 128 hex（64 字节 compact）
-   * 🔴 修复（第十二轮）：@noble/secp256k1@2.x 的 sign 是异步函数（返回 Promise<Uint8Array>），
-   *   必须 await；旧代码同步调用会得到 Promise，toCompactRawBytes 为 undefined，
-   *   bytesToHex(Promise) 得到空串 → 所有无感签名都会因合约 secp256k1_verify 失败而无效。
+   * 🔴 真根因修复（2026-09-18，第十六轮）：@noble/secp256k1@2.1.0 的 sign() 返回的是
+   *   **Signature 对象（r/s 两个 BigInt）**，不是 Uint8Array！此前注释误以为 v2 返回
+   *   Uint8Array，所以即使补了 await，bytesToHex(Signature 对象) 仍得到空串
+   *   （Array.from(非可迭代对象) = []）→ 签名永远为空 → 守卫报"签名为空"。
+   *   本机 node + 同版本 2.1.0 复现确认；sig.toCompactRawBytes() → Uint8Array(64)
+   *   → 128 hex，lowS 生效，verify 通过。
+   *   兼容写法：如果未来换成返回 Uint8Array 的版本/替代实现，直接透传。
    */
   async sign(message) {
     const hash = window.nobleSha256(new TextEncoder().encode(message));
     const sig = await window.nobleSecp.sign(hash, state.sessPriv, { lowS: true });
-    return bytesToHex(sig);   // sig 是 Uint8Array(64) compact 签名
+    const bytes = (sig instanceof Uint8Array) ? sig : sig.toCompactRawBytes();
+    return bytesToHex(bytes);   // Uint8Array(64) compact 签名 → 128 hex
   },
 
   bumpNonce() {
