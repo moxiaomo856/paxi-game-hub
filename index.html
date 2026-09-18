@@ -359,13 +359,37 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 
 <main class="main" id="main"></main>
 
+<!-- 🔴 启动失败提示：PaxiCosmJS（链上 SDK）未加载成功时显示，避免只看到一堆看不懂的报错 -->
+<div id="bootErr" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
+     background:#b00020;color:#fff;padding:14px 16px;font-size:14px;line-height:1.5;
+     box-shadow:0 2px 8px rgba(0,0,0,.3)">
+  ⚠️ 链上 SDK（paxi-cosmjs.umd.js）未加载成功，应用暂时无法运行。<br>
+  请：① 手机浏览器<b>强制刷新</b>本页；② 确认该文件已随仓库一起部署到 GitHub Pages。<br>
+  <span style="opacity:.85">（若网络受限，可在能联网的环境刷新一次后再用）</span>
+</div>
+
 <nav class="tabbar">
   <div class="tab active" data-tab="home"  onclick="switchTab('home')"><span class="ti">🎮</span><span data-i18n="tab_home">大厅</span></div>
   <div class="tab"        data-tab="wallet" onclick="switchTab('wallet')"><span class="ti">💰</span><span data-i18n="tab_wallet">钱包</span></div>
   <div class="tab"        data-tab="me"     onclick="switchTab('me')"><span class="ti">👤</span><span data-i18n="tab_me">我的</span></div>
 </nav>
 
-<script src="https://mainnet-api.paxinet.io/resources/js/paxi-cosmjs.umd.js"></script>
+<!-- 🟢 关键修复：PaxiCosmJS 官方 UMD 改为本地自托管（同源走 GitHub Pages），不再依赖
+     第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
+     加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
+     该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
+<script src="paxi-cosmjs.umd.js?v=20260918-4" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260918-4"></script>
+<script>
+  // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
+  if (typeof window.PaxiCosmJS === 'undefined') {
+    console.error('[boot] PaxiCosmJS 未加载成功（paxi-cosmjs.umd.js 缺失或被拦截）。请强刷或确认该文件已随仓库部署。');
+    window.addEventListener('DOMContentLoaded', function () {
+      var el = document.getElementById('bootErr');
+      if (el) el.style.display = 'block';
+    });
+  }
+</script>
 
 <!-- 🟢 无感签名：CosmJS ESM 供会话私钥直接签 Tx（与 UMD 的 PaxiCosmJS 并存） -->
 <script type="module">
@@ -395,16 +419,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260918-3';</script>
-<script src="shared.js?v=20260918-3"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260918-3"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260918-3"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260918-3"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260918-4';</script>
+<script src="shared.js?v=20260918-4"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260918-4"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260918-4"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260918-4"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260918-3"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260918-3"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260918-4"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260918-4"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 </body>
 </html>
