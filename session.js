@@ -293,63 +293,146 @@ function waitForCosmJS(timeoutMs = 8000) {
   });
 }
 
-// 用会话私钥创建 Cosmos SigningStargateClient（不需要主钱包）
-// DirectSecp256k1Wallet.fromKey 接受 32 字节私钥（Uint8Array）
-Session._sessionClient = null;
-Session.getSessionClient = async function() {
-  await waitForCosmJS();
-  if (Session._sessionClient) return Session._sessionClient;
-  const { DirectSecp256k1Wallet, SigningStargateClient, GasPrice } = window.CosmJSSigning;
+// ============================================================================
+// 🟢 第十八轮（2026-09-18）：无感通道可用性判定 —— 一律以【链上事实】为准
+//
+// 为什么必须改：旧实现用 localStorage 的 'paxi_hub_feegrant_expires' 时间戳
+// 当作"Feegrant 有效"的证据。那是本机自己写的，只能证明"这台机器点过按钮"，
+// 证明不了"链上真的有授权"。一旦链上授权过期/被撤，前端仍会发一笔注定失败的
+// 会话交易，再回退弹主钱包 —— 用户看到的就是"莫名其妙弹钱包 + 报 gas 不足"。
+//
+// 另外旧注释说「PAXI LCD 不支持 /cosmos/feegrant/v1beta1/*」是误判：
+//   实测单点接口 /allowance/{granter}/{grantee} 完全可用；
+//   真正不可靠的是列表接口 /allowances/{granter}（恒返回空数组，别信它）。
+// ============================================================================
 
-  if (!state.sessPriv) throw new Error('会话私钥未生成');
-
-  // sessPriv 是 Uint8Array（32 字节），直接传给 fromKey（不要 hexToBytes 二次转换）
-  const wallet = await DirectSecp256k1Wallet.fromKey(state.sessPriv, NETWORK.prefix);
-
-  // 连接 RPC（会话走 RPC，主钱包走 LCD）；传 gasPrice 让 Stargate 能估算/模拟 gas
-  Session._sessionClient = await SigningStargateClient.connectWithSigner(
-    NETWORK.rpc,
-    wallet,
-    { gasPrice: GasPrice.fromString('0.025upaxi') },
-  );
-  return Session._sessionClient;
+/** 会话账户在链上的原生 PAXI 余额（upaxi 字符串） */
+Session.getSessionBalance = async function () {
+  if (!state.sessAddr) return '0';
+  const r = await fetch(`${NETWORK.lcd}/cosmos/bank/v1beta1/balances/${state.sessAddr}`);
+  if (!r.ok) throw new Error(`查询会话余额失败 HTTP ${r.status}`);
+  const d = await r.json();
+  const c = (d.balances || []).find((x) => x.denom === NETWORK.denom);
+  return c ? c.amount : '0';
 };
 
-// 查询 Feegrant 是否仍有效
-// Feegrant: granter = 主钱包, grantee = 会话地址
-// 链上路径: /cosmos/feegrant/v1beta1/allowance/{granter}/{grantee}
-// 查询 Feegrant 是否仍有效
-// 🔴 PAXI LCD 节点不支持 /cosmos/feegrant/v1beta1/* REST 接口（返回 501），
-//    所以改用本地 localStorage + 合约端 session_info 双重验证
-//    （合约的 session_info 查得到说明会话已注册，但不检查 feegrant——
-//     feegrant 是链上 ante handler 层的 gas 代付授权，合约看不到）
-Session.hasFeegrant = async function() {
-  if (!state.sessAddr || !state.wallet) return false;
-  try {
-    const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
-    if (!exp) return false;                    // 根本没点过"开启无感模式"
-    if (exp < Date.now()) return false;        // 过期了
-
-    // 再用合约 session_info 做二次确认（确认会话在链上真的存在且未过期）
-    const info = await Session.syncFromChain();
-    if (!info || !info.registered || info.expired) return false;
-
-    return true;
-  } catch (e) {
-    console.warn('[hasFeegrant] 检查失败，保守认为未开启:', e.message);
-    return false;
+/**
+ * 链上真实查询 Feegrant（granter = 主钱包，grantee = 会话地址），60 秒缓存
+ * @returns {Promise<{ok:boolean, exists:boolean, expiration:number, spendLimit:string, reason:string, unknown:boolean}>}
+ */
+Session._fgCache = { at: 0, granter: '', data: null };
+Session.getFeegrant = async function (force) {
+  const granter = state.wallet && state.wallet.address;
+  if (!granter || !state.sessAddr) {
+    return { ok: false, exists: false, expiration: 0, spendLimit: '0', reason: '主钱包或会话地址未就绪', unknown: false };
   }
+  const c = Session._fgCache;
+  if (!force && c.data && c.granter === granter && Date.now() - c.at < 60000) return c.data;
+
+  let data;
+  try {
+    const r = await fetch(`${NETWORK.lcd}/cosmos/feegrant/v1beta1/allowance/${granter}/${state.sessAddr}`);
+    if (r.ok) {
+      const d = await r.json();
+      const a = d.allowance;
+      if (a) {
+        const basic = a.allowance || {};
+        const expMs = basic.expiration ? Date.parse(basic.expiration) : 0;
+        const limit = (basic.spend_limit || []).find((x) => x.denom === NETWORK.denom);
+        const alive = !!expMs && expMs > Date.now() + 60000;   // 至少还剩 1 分钟才算有效
+        data = {
+          ok: alive,
+          exists: true,
+          expiration: expMs || 0,
+          spendLimit: limit ? limit.amount : '0',
+          reason: !expMs ? 'gas 代付授权缺少到期时间（异常数据）'
+            : alive ? ''
+            : `gas 代付授权已于 ${new Date(expMs).toLocaleString()} 过期`,
+          unknown: false,
+        };
+      } else {
+        data = { ok: false, exists: false, expiration: 0, spendLimit: '0', reason: '从未开启 gas 代付（Feegrant）授权', unknown: false };
+      }
+    } else if (r.status === 404) {
+      data = { ok: false, exists: false, expiration: 0, spendLimit: '0', reason: '从未开启 gas 代付（Feegrant）授权', unknown: false };
+    } else {
+      data = { ok: false, exists: false, expiration: 0, spendLimit: '0', reason: `Feegrant 查询失败 HTTP ${r.status}`, unknown: true };
+    }
+  } catch (e) {
+    // 🟢 网络异常标 unknown（而不是"没有授权"）——否则一次网络抖动就会把
+    //    本来可用的无感通道误判关闭，白白弹一次主钱包。
+    data = { ok: false, exists: false, expiration: 0, spendLimit: '0', reason: `Feegrant 查询异常：${(e && e.message) || e}`, unknown: true };
+  }
+  Session._fgCache = { at: Date.now(), granter, data };
+  return data;
 };
 
-// 🟢 同步版 Feegrant 快检（供 shared.js::execAnyContract 的 useSession 即时判断）
-//    只查本地 localStorage 的 7 天过期标记，不触发任何链上查询 / 弹窗，
-//    用于"是否值得尝试无感通道"的快筛；链上有效性由 Feegrant ante handler 兜底。
+/** upaxi → 人类可读 PAXI 字符串 */
+function fmtPaxi(upaxi) {
+  try {
+    const n = Number(upaxi) / 1e6;
+    return String(Number(n.toFixed(6)));
+  } catch (e) { return String(upaxi); }
+}
+Session.fmtPaxi = fmtPaxi;
+
+/**
+ * 🟢 无感通道可用性判定（权威版本，会查链，60 秒缓存）
+ *   1) 链上 Feegrant 有效（主钱包代付 gas）        → mode='feegrant'
+ *   2) 会话账户自身 PAXI 余额 >= 本次手续费        → mode='balance'
+ *   3) 两者都不行                                  → ok:false + 人类可读原因
+ * @returns {Promise<{ok:boolean, mode:string, reason:string, fee:object, balance:(string|null)}>}
+ */
+Session.verifySeamless = async function (force) {
+  if (!state.sessPriv) return { ok: false, mode: 'none', reason: '本地没有会话私钥（请重新开启无感模式）' };
+  if (!state.sessAddr) return { ok: false, mode: 'none', reason: '本地没有会话地址' };
+  if (!state.wallet || !state.wallet.address) return { ok: false, mode: 'none', reason: '主钱包未连接' };
+
+  const fee = await computeSeamlessFee();          // shared.js：按链上 minimum_gas_price 算
+
+  const fg = await Session.getFeegrant(force);
+  // _forceRegrant：上一次交易被链上以 feegrant 相关原因拒绝（额度用尽/已撤销），
+  // 此时即使接口仍显示授权有效也不能再走代付，必须重新授权。
+  if (fg.ok && !Session._forceRegrant) return { ok: true, mode: 'feegrant', reason: '', fee, balance: null };
+
+  let balance = '0';
+  try { balance = await Session.getSessionBalance(); } catch (e) { /* 查不到当 0 */ }
+  if (BigInt(balance) >= BigInt(fee.amount)) {
+    return { ok: true, mode: 'balance', reason: '', fee, balance };
+  }
+
+  if (Session._forceRegrant) {
+    return { ok: false, mode: 'none', reason: 'gas 代付被链上拒绝（额度可能已用尽），需要重新授权无感模式', fee, balance };
+  }
+  return {
+    ok: false,
+    mode: 'none',
+    reason: fg.unknown
+      ? `无法确认 gas 代付状态（${fg.reason}），且会话账户余额仅 ${fmtPaxi(balance)} PAXI，不够付 ${fmtPaxi(fee.amount)} PAXI 手续费`
+      : `${fg.reason || '未开启 gas 代付'}，且会话账户余额不足（${fmtPaxi(balance)} PAXI < ${fmtPaxi(fee.amount)} PAXI）`,
+    fee,
+    balance,
+  };
+};
+
+/** 「我的」页用的简化状态：链上 Feegrant 是否有效 */
+Session.hasFeegrant = async function () {
+  if (!state.sessAddr || !state.wallet) return false;
+  const fg = await Session.getFeegrant();
+  return !!fg.ok;
+};
+
+
+// 🟢 同步快检（不查链）：只做"值不值得尝试"的粗筛，链上 60 秒缓存由
+//    Session.getFeegrant() 负责；execAnyContract 真正用来分流的判定是 verifySeamless()。
+//    ⚠️ 不要再用它当"无感已开通"的证据（历史事故就是被这个本地时间戳骗了）。
+Session.LS_FEEGRANT = 'paxi_hub_feegrant_expires';
 Session.hasFeegrantFlag = function () {
   try {
-    const exp = Number(localStorage.getItem('paxi_hub_feegrant_expires') || '0');
+    const exp = Number(localStorage.getItem(Session.LS_FEEGRANT) || '0');
     if (!exp) return false;                     // 从没点过"开启无感模式"
     if (exp < Date.now()) {                     // 过期则清掉，避免下次误判
-      localStorage.removeItem('paxi_hub_feegrant_expires');
+      localStorage.removeItem(Session.LS_FEEGRANT);
       return false;
     }
     return true;
@@ -364,24 +447,31 @@ Session.hasFeegrantFlag = function () {
 //    若自动开通失败（用户取消 / 链不支持 feegrant），置 _seamlessFailedOnce 本页不再重试，
 //    让调用方走主钱包通道（仍可用，只是要弹签名）。
 Session._seamlessFailedOnce = false;
+Session._forceRegrant = false;     // 链上以 feegrant 原因拒过 → 下次必须撤销+重授权
 Session.ensureSeamless = async function () {
-  if (Session._seamlessFailedOnce) return Session.hasFeegrantFlag();
-  if (Session.hasFeegrantFlag()) return true;   // 已开通，直接放行
+  // _forceRegrant 时即使本页已放弃过，也要再给一次机会（这是可自动修复的故障）
+  if (Session._seamlessFailedOnce && !Session._forceRegrant) return false;
+  if (!state.connected || !state.wallet) return false;
   try {
-    if (!state.connected || !state.wallet) return false;
-    // 确保会话密钥已注册（未注册会让 enableSeamlessMode 先做一次 RegisterSession）
-    const r = await Session.ensure();
-    if (!r.ok && r.needRegister) {
-      await Session.enableSeamlessMode();       // 注册 + 授权（弹 1~2 次）
-    } else if (!Session.hasFeegrantFlag()) {
-      await Session.enableSeamlessMode();       // 仅补 Feegrant 授权
+    // 🟢 先用链上事实判断：能用就什么都不做（不查多余接口、绝不弹窗）
+    const v = await Session.verifySeamless();
+    if (v.ok) return true;
+
+    // 不能用 → 一键开通：RegisterSession + 撤销旧授权/重新授权 + 余额兜底
+    //   合并成【一笔交易】，全程只弹一次主钱包（旧实现分 2~3 笔，弹 2~3 次，体验很糟）。
+    Session._seamlessFailedOnce = false;
+    await Session.enableSeamlessMode();
+
+    const v2 = await Session.verifySeamless(true);
+    if (!v2.ok) {
+      Session._seamlessFailedOnce = true;   // 开通了却仍不可用（链不支持/被拒），本页不再重试
+      Session._lastSeamlessError = v2.reason;
     }
-    const got = Session.hasFeegrantFlag();
-    if (!got) Session._seamlessFailedOnce = true; // 开了却没拿到标记（链不支持？）本页不再重试
-    return got;
+    return v2.ok;
   } catch (e) {
-    Session._seamlessFailedOnce = true;          // 用户取消或失败，本页不再自动重试
-    console.warn('[ensureSeamless] 自动开通失败，将走主钱包通道:', e && e.message);
+    Session._seamlessFailedOnce = true;     // 用户取消或失败，本页不再自动重试
+    Session._lastSeamlessError = (e && e.message) || '未知原因';
+    console.warn('[ensureSeamless] 自动开通失败，将走主钱包通道:', Session._lastSeamlessError);
     return false;
   }
 };
@@ -412,12 +502,11 @@ Session.sendTxWithSession = async function(messages, memo = '') {
 
 Session._sendTxWithSessionCore = async function(messages, memo = '') {
   const CJ = window.CosmJSSigning;
-  if (!CJ) throw new Error('CosmJS 未加载（无感签名需要 CosmJS），将回退主钱包');
+  if (!CJ) throw new Error('CosmJS 未加载（无感签名需要 CosmJS）');
   const { DirectSecp256k1Wallet, SigningStargateClient, GasPrice } = CJ;
 
-  // gas 必须由主钱包付（fee.granter），主钱包没连就报错，避免用错付费方
   if (!state.wallet || !state.wallet.address) {
-    throw new Error('主钱包未连接，无法指定 gas 支付方');
+    throw new Error('主钱包未连接，无法确认 gas 支付方');
   }
   if (!state.sessPriv) throw new Error('会话私钥未生成');
 
@@ -425,7 +514,14 @@ Session._sendTxWithSessionCore = async function(messages, memo = '') {
   if (!state.chainId) state.chainId = await fetchChainId();
   const chainId = state.chainId || 'paxi-mainnet';
 
-  // 1. 取会话账户 accNum/seq（LCD REST，不走 RPC）
+  // 1. 🔴 决定 gas 由谁付 —— 以链上事实为准（第十八轮）
+  //    mode='feegrant'：链上授权有效 → 写 fee.granter，由主钱包余额代付
+  //    mode='balance' ：授权无效但会话账户自己有 PAXI → 自己付（仍然免密）
+  const v = await Session.verifySeamless();
+  if (!v.ok) throw new Error(`无感通道不可用：${v.reason}`);
+  const plan = v.fee;
+
+  // 2. 取会话账户 accNum/seq（LCD REST，不走 RPC）
   const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${state.sessAddr}`);
   if (!acctRes.ok) throw new Error(`获取会话账户失败 HTTP ${acctRes.status}`);
   const acctData = await acctRes.json();
@@ -434,130 +530,278 @@ Session._sendTxWithSessionCore = async function(messages, memo = '') {
   const accountNumber = Number(acct.account_number);
   const sequence = Number(acct.sequence);
 
-  // 2. 构造带 granter 的 StdFee（Feegrant：granter 写进 fee，而非第 6 参数）
-  const gasLimit = 1500000;                       // 固定上限，避免依赖 RPC simulate
-  const gasPrice = GasPrice.fromString('0.025upaxi');
-  const feeAmount = gasPrice.amount.multiply(gasLimit); // Decimal → 总 upaxi 数
+  // 3. StdFee
+  // 🔴 gasPrice 必须 >= 链上 minimum_gas_price（实测 0.05 upaxi/gas）。
+  //    此前这里写死 0.025 —— 连 mempool 都进不去，CheckTx 直接
+  //    "insufficient fees"。这是无感通道一直失败的真根因。
   const fee = {
-    amount: [{ denom: 'upaxi', amount: feeAmount.toString() }],
-    gas: String(gasLimit),
-    granter: state.wallet.address,                 // 🟢 gas 由主钱包付（Feegrant）
+    amount: [{ denom: plan.denom, amount: plan.amount }],
+    gas: String(plan.gasLimit),
   };
+  if (v.mode === 'feegrant') fee.granter = state.wallet.address;
+  console.log(
+    `[无感] gas 支付方=${v.mode === 'feegrant' ? '主钱包代付 ' + state.wallet.address : '会话余额 ' + fmtPaxi(v.balance) + ' PAXI'}`
+    + ` | 手续费=${plan.amount}${plan.denom} gas=${plan.gasLimit} @${plan.gasPrice}/gas (链下限)`,
+  );
 
-  // 3. 离线签名（不连 RPC）
+  // 4. 离线签名（不连 RPC）
   const wallet = await DirectSecp256k1Wallet.fromKey(state.sessPriv, NETWORK.prefix);
-  const client = await SigningStargateClient.offline(wallet, { gasPrice });
+  const client = await SigningStargateClient.offline(wallet, {
+    gasPrice: GasPrice.fromString(`${plan.gasPrice}${NETWORK.denom}`),
+  });
   const { signed, signature } = await client.sign(
     state.sessAddr, messages, fee, memo,
     { accountNumber, sequence, chainId },          // explicitSignerData：完全离线
   );
 
-  // 4. 组装 TxRaw 并 base64 编码（用 UMD 的 TxRaw，已验证可用）
+  // 5. 组装 TxRaw 并 base64 编码（用 UMD 的 TxRaw，已验证可用）
   const txRaw = PaxiCosmJS.TxRaw.fromPartial({
     bodyBytes: signed.bodyBytes,
     authInfoBytes: signed.authInfoBytes,
     signatures: [fromBase64(signature.signature)], // CosmJS 返回的 signature 是 base64 串
   });
-  const txBytes = PaxiCosmJS.TxRaw.encode(txRaw).finish();
-  const txBase64 = toBase64(txBytes);
+  const txBase64 = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
 
-  // 5. LCD REST 广播（BROADCAST_MODE_SYNC：CheckTx 通过即返回，后续由 waitForTx 轮询上链）
+  // 6. LCD REST 广播（BROADCAST_MODE_SYNC：CheckTx 通过即返回，上链确认由 waitForTx 轮询）
   const res = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tx_bytes: txBase64, mode: 'BROADCAST_MODE_SYNC' }),
   });
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`广播失败 HTTP ${res.status}：${errBody.slice(0, 200)}`);
+  const bodyText = await res.text().catch(() => '');
+  if (!res.ok) throw new Error(`广播失败 HTTP ${res.status}：${bodyText.slice(0, 300)}`);
+  let txResp;
+  try { txResp = JSON.parse(bodyText); } catch (e) {
+    throw new Error('广播返回非 JSON：' + bodyText.slice(0, 200));
   }
-  const txResp = await res.json();
   const txr = txResp.tx_response || txResp;
   const code = txr && txr.code !== undefined ? Number(txr.code) : 0;
-  if (code !== 0) throw new Error(mapError(code, (txr && txr.raw_log) || JSON.stringify(txResp).slice(0, 200)));
+  if (code !== 0) {
+    const rawLog = (txr && txr.raw_log) || bodyText.slice(0, 300);
+    // 🟢 gas 代付被链上拒绝（额度用尽 / 已被撤销）：标记需要"撤销+重授权"，
+    //    并作废 60 秒缓存，否则前端永远认为授权有效、每次都失败一遍。
+    if (/feegrant|allowance|fee limit|fee allowance|does not allow to pay/i.test(rawLog)) {
+      Session._forceRegrant = true;
+      Session._fgCache = { at: 0, granter: '', data: null };
+    }
+    // 🔴 直接把链上原始错误抛出去。历史上这里走 mapError 的关键词表，把
+    //    "insufficient fees"（手续费低于链下限）含糊地吞成一句"gas 费不足"，
+    //    导致真因连续几轮都查不出来。诊断阶段宁可难看也要准确。
+    throw new Error(`链上拒绝（code=${code}）：${rawLog}`);
+  }
   const hash = (txr && txr.txhash) || txResp.txhash;
-  if (!hash) throw new Error('广播未返回 txhash：' + JSON.stringify(txResp).slice(0, 200));
+  if (!hash) throw new Error('广播未返回 txhash：' + bodyText.slice(0, 200));
   return hash;
 };
 
-// 开启无感模式（首次：主钱包弹窗 2 次）
-// 在 UI 的「我的」页提供按钮调用这个
-  Session.enableSeamlessMode = async function() {
-  if (!state.sessAddr || !state.sessPriv) await Session.ensure();
-  if (!state.wallet) throw new Error('钱包未连接');
+// ============================================================================
+// 手写 protobuf 工具
+// PaxiCosmJS UMD 的 Registry 里没有 feegrant 的 encoder，所以 MsgGrantAllowance /
+// MsgRevokeAllowance 只能手写 wire format。结构固定，实测已在链上成功执行过 4 笔。
+// ============================================================================
+const _pe = new TextEncoder();
 
-  // 1. 会话注册（主钱包签名，弹 1 次）
-  const info = await Session.syncFromChain();
-  if (!info.registered || info.expired) {
-    await Session.register();
+/** 无符号 varint（BigInt，不限制长度） */
+function _varint(n) {
+  let x = BigInt(n);
+  const buf = [];
+  while (x > 0x7fn) { buf.push(Number((x & 0x7fn) | 0x80n)); x >>= 7n; }
+  buf.push(Number(x));
+  return new Uint8Array(buf);
+}
+/** 长度分隔字段（wiretype 2）：tag = (num<<3)|2 */
+function _field(num, val) { return new Uint8Array([(num << 3) | 2, ..._varint(val.length), ...val]); }
+/** 字符串字段 */
+function _str(num, s) { return _field(num, _pe.encode(s)); }
+
+/**
+ * MsgGrantAllowance{ granter=1, grantee=2, allowance=3(Any) }
+ *   Any{ type_url=1, value=2 } -> BasicAllowance{ spend_limit=1(repeated Coin), expiration=2(Timestamp) }
+ *   Coin{ denom=1, amount=2 } / Timestamp{ seconds=1(varint, wiretype 0) }
+ */
+function grantAllowanceMsg(granter, grantee, spendLimit = '30000000', days = 7) {
+  const secs = Math.floor(Date.now() / 1000) + days * 86400;
+  const timestamp = new Uint8Array([0x08, ..._varint(secs)]);        // Timestamp 只有 seconds 字段
+  const coinBytes = new Uint8Array([..._str(1, NETWORK.denom), ..._str(2, spendLimit)]);
+  const basicBytes = new Uint8Array([..._field(1, coinBytes), ..._field(2, timestamp)]);
+  const anyBytes = new Uint8Array([
+    ..._str(1, '/cosmos.feegrant.v1beta1.BasicAllowance'),
+    ..._field(2, basicBytes),
+  ]);
+  return {
+    typeUrl: '/cosmos.feegrant.v1beta1.MsgGrantAllowance',
+    value: new Uint8Array([..._str(1, granter), ..._str(2, grantee), ..._field(3, anyBytes)]),
+  };
+}
+
+/** MsgRevokeAllowance{ granter=1, grantee=2 } */
+function revokeAllowanceMsg(granter, grantee) {
+  return {
+    typeUrl: '/cosmos.feegrant.v1beta1.MsgRevokeAllowance',
+    value: new Uint8Array([..._str(1, granter), ..._str(2, grantee)]),
+  };
+}
+
+/** bank MsgSend{ from_address=1, to_address=2, amount=3(repeated Coin) } */
+function topUpMsg(from, to, amount) {
+  const v = PaxiCosmJS.MsgSend.fromPartial({
+    fromAddress: from,
+    toAddress: to,
+    amount: [{ denom: NETWORK.denom, amount: String(amount) }],
+  });
+  return { typeUrl: PaxiCosmJS.MsgSend.typeUrl, value: PaxiCosmJS.MsgSend.encode(v).finish() };
+}
+
+/** 合约 register_session（必须由主钱包 sender 发送） */
+function registerSessionMsg() {
+  const exec = PaxiCosmJS.MsgExecuteContract.fromPartial({
+    sender: state.wallet.address,
+    contract: CONTRACTS.game,
+    msg: _pe.encode(JSON.stringify({
+      register_session: {
+        session_addr: state.sessAddr,
+        pubkey_hex: state.sessPubHex,
+        daily_limit: SESSION_DAILY_LIMIT,
+      },
+    })),
+    funds: [],
+  });
+  return { typeUrl: PaxiCosmJS.MsgExecuteContract.typeUrl, value: PaxiCosmJS.MsgExecuteContract.encode(exec).finish() };
+}
+
+// ============================================================================
+// 开启 / 续期无感模式（第十八轮重写）
+//
+// 旧实现的三个硬伤：
+//   ① 分 2~3 笔交易 → 弹 2~3 次主钱包；
+//   ② 已存在（哪怕已过期）的 Feegrant 直接重复 grant → 链上报
+//      "fee allowance already exists"，整笔失败（历史日志 02:53/03:42/07:01）；
+//   ③ 发完不等确认就写 localStorage 标记 → "本地已开通、链上什么都没有"，
+//      之后每笔游戏操作都先失败一次再弹钱包。
+//
+// 现在：按需拼装消息 → 合并成【一笔】交易（一次弹窗）→ 等上链确认 → 链上复核 → 才落标记。
+// ============================================================================
+Session.enableSeamlessMode = async function () {
+  if (!state.wallet || !state.wallet.address) throw new Error('钱包未连接');
+  if (!state.sessAddr || !state.sessPriv) await Session.ensure();
+  if (!state.sessAddr || !state.sessPriv) throw new Error('会话密钥创建失败，请强制刷新页面后重试');
+
+  const msgs = [];
+  const actions = [];
+
+  // ---- ① 合约侧会话注册：只在缺失 / 过期 / 公钥不匹配时才发 ----
+  let info = { registered: false };
+  try { info = await Session.syncFromChain(); } catch (e) { /* 查不到就当未注册 */ }
+  if (!info.registered || info.expired || info.pubMatches === false) {
+    msgs.push(registerSessionMsg());
+    actions.push('注册会话');
   }
 
-  // 2. 授权 Feegrant —— 🟢 复用 shared.js::sendTx 成熟路径
-  //
-  // 🔴 关键修复：signAndSendTransaction **不接受** {chainId, fee, memo, messages}！
-  // DApp 指南明确要求 SignDoc 三件套：
-  //   { bodyBytes: base64(SignDoc.bodyBytes),
-  //     authInfoBytes: base64(SignDoc.authInfoBytes),
-  //     chainId, accountNumber }
-  //
-  // sendTx 内部已经完整实现了这条链路：
-  //   fetch auth → fetchChainId() → simulate gas → TxBody/AuthInfo/SignDoc 编码
-  //   → signAndSendTransaction(三件套) → 自己 POST LCD
-  //
-  // 所以 enableSeamlessMode 只需要给 sendTx 一个 MsgGrantAllowance 消息就行。
-  // 但 PaxiCosmJS UMD 的 Registry 里没有 feegrant 的 protobuf encoder。
-  // 🟢 最简方案：手写 MsgGrantAllowance 的 protobuf bytes（结构固定，10 行手写）
-  const expiration = new Date(Date.now() + 7 * 86400 * 1000).toISOString();
+  // ---- ② 链上 Feegrant（gas 代付）----
+  //    needGrant：授权缺失/已过期（fg.ok=false），或上次被链上以 feegrant 原因拒绝
+  //    （_forceRegrant，典型是额度用尽 —— 接口里查不出来，只能靠拒绝反推）。
+  const fg = await Session.getFeegrant(true);
+  const needGrant = !fg.ok || Session._forceRegrant;
+  if (needGrant) {
+    // ⚠️ 已存在的授权必须先撤销：MsgGrantAllowance 对同一个 (granter, grantee)
+    //    会直接报 "fee allowance already exists"，整笔交易（含注册/充值）一起失败。
+    if (fg.exists) {
+      msgs.push(revokeAllowanceMsg(state.wallet.address, state.sessAddr));
+      actions.push('撤销旧的 gas 代付授权');
+    }
+    msgs.push(grantAllowanceMsg(state.wallet.address, state.sessAddr));
+    actions.push('授权 gas 代付 7 天');
+  }
 
-  // 手写 MsgGrantAllowance protobuf（cosmos-sdk v0.47）
-  // wire format 基础函数
-  const pe = new TextEncoder();
-    // 🟢 修复：while 循环版 varint（不限制长度）
-  const varint = n => {
-    const buf = []; let x = n;
-    while (x > 0x7f) { buf.push((x & 0x7f) | 0x80); x >>= 7; }
-    buf.push(x);
-    return new Uint8Array(buf);
-  };
-  const field = (num, val) => new Uint8Array([(num << 3) | 2, ...varint(val.length), ...val]);
+  // ---- ③ 余额兜底：授权不可用时，让会话账户自己也能付 gas ----
+  let bal = '0';
+  try { bal = await Session.getSessionBalance(); } catch (e) { /* 当 0 */ }
+  const plan = await computeSeamlessFee();
+  if (!fg.ok) {
+    const need = BigInt(plan.amount) * 30n;          // 至少够 30 笔
+    if (BigInt(bal) < need) {
+      let top = need - BigInt(bal);
+      if (top > 2_000_000n) top = 2_000_000n;        // 单次最多 2 PAXI，别占用户太多钱
+      if (top < 500_000n) top = 500_000n;            // 单次最少 0.5 PAXI
+      msgs.push(topUpMsg(state.wallet.address, state.sessAddr, top.toString()));
+      actions.push(`充值 ${fmtPaxi(top.toString())} PAXI 作 gas 兜底`);
+    }
+  }
 
-  // BasicAllowance
-  // 🔴 修复：Timestamp 是嵌套消息，内部 seconds=int64 (field 1, wiretype 0)
-  // 正确序列: [0x08, varint(seconds)]
-  const ts = Math.floor(new Date(expiration).getTime() / 1000);
-  const secBuf = []; let s = ts;
-  while (s > 0x7f) { secBuf.push((s & 0x7f) | 0x80); s >>= 7; }
-  secBuf.push(s);
-  // Timestamp 完整字节: field 1 (seconds) varint tag 0x08 + value
-  const timestampBytes = new Uint8Array([0x08, ...secBuf]);
-  const tsField = field(2, timestampBytes);
-  const coinField = field(1, new Uint8Array([
-    ...field(1, pe.encode('upaxi')), ...field(2, pe.encode('30000000'))  // 30 PAXI, 7d 耗量足够
-  ]));
-  const baBytes = new Uint8Array([...coinField, ...tsField]);
+  // ---- ④ 链上已经一切完好：不弹窗、不发交易 ----
+  if (!msgs.length) {
+    if (fg.ok) localStorage.setItem(Session.LS_FEEGRANT, String(fg.expiration));
+    Session._forceRegrant = false;
+    return '(already-enabled)';
+  }
 
-  // Any{typeUrl, value} 包 BasicAllowance
-  const anyBytes = new Uint8Array([
-    ...field(1, pe.encode('/cosmos.feegrant.v1beta1.BasicAllowance')),
-    ...field(2, baBytes),
-  ]);
+  // ---- ⑤ 合并成一笔交易 → 全程只弹一次主钱包 ----
+  const hash = await sendTx(msgs, 'Seamless setup: ' + actions.join(' + '));
 
-  // MsgGrantAllowance{granter, grantee, allowance}
-  const grantBytes = new Uint8Array([
-    ...field(1, pe.encode(state.wallet.address)),
-    ...field(2, pe.encode(state.sessAddr)),
-    ...field(3, anyBytes),
-  ]);
+  // 🔴 必须等上链确认。BROADCAST_MODE_SYNC 只保证 CheckTx 通过，
+  //    DeliverTx 仍可能失败（gas 不够、合约报错…），旧实现在这里直接写标记，
+  //    于是"本地以为开通了、链上其实没有"，后续每笔操作都先失败一次再弹钱包。
+  await waitForTx(hash);
 
-  const grantMsg = {
-    typeUrl: '/cosmos.feegrant.v1beta1.MsgGrantAllowance',
-    value: grantBytes,  // Uint8Array —— sendTx 的 TxBody.encode() 直接 copy
-  };
+  // ---- ⑥ 链上复核通过后，才落本地标记 ----
+  Session._forceRegrant = false;
+  const after = await Session.verifySeamless(true);
+  if (!after.ok) throw new Error(`无感模式开通未生效：${after.reason}`);
+  const fg2 = await Session.getFeegrant(true);
+  if (fg2.ok) localStorage.setItem(Session.LS_FEEGRANT, String(fg2.expiration));
+  else localStorage.removeItem(Session.LS_FEEGRANT);
+  return hash;
+};
 
-  // ✅ 走 sendTx（与 DApp 指南完全一致的签名格式）
-  const txHash = await sendTx([grantMsg], 'Seamless feegrant 7d');
-  localStorage.setItem('paxi_hub_feegrant_expires', String(Date.now() + 7 * 86400 * 1000));
-  return txHash;
+// ============================================================================
+// 无感自检：一次性把整条链路的关键状态打印出来（「我的」页有按钮）
+// 以后再出问题，看这一份报告就能定位到底断在哪一环，不必再靠猜。
+// ============================================================================
+Session.selfCheck = async function () {
+  const r = { build: (typeof window !== 'undefined' && window.HUB_BUILD) || '未知', items: [] };
+  const add = (name, ok, detail) => r.items.push({ name, ok: ok === null ? 'warn' : (ok ? 'ok' : 'fail'), detail });
+
+  add('页面版本 build', !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260918-6' ? '' : '（⚠️ 不是最新版，浏览器可能缓存了旧脚本，请强制刷新）'));
+  add('CosmJS 签名库', !!window.CosmJSSigning, window.CosmJSSigning ? '已加载' : '未加载，无感签名无法工作');
+  add('加密库 noble', !!(window.nobleSecp && window.nobleSha256 && window.nobleRipemd160), '');
+  add('主钱包', !!(state.wallet && state.wallet.address), (state.wallet && state.wallet.address) || '未连接');
+
+  let chainId = state.chainId;
+  try { chainId = await fetchChainId(); } catch (e) {}
+  add('chainId', chainId === 'paxi-mainnet', chainId || '未知');
+
+  let mgp = null;
+  try { mgp = await fetchMinGasPrice(); } catch (e) {}
+  add('链上最低 gas 价', mgp >= 0.05, `${mgp} upaxi/gas（无感通道按此付费）`);
+
+  const plan = await computeSeamlessFee().catch(() => null);
+  add('单笔手续费', !!plan, plan ? `${plan.amount}${plan.denom} / gas ${plan.gasLimit}` : '计算失败');
+
+  add('本地会话密钥', !!state.sessPriv, state.sessPriv ? `地址 ${shortAddr(state.sessAddr, 10)}` : '无（将重新生成）');
+
+  let info = null;
+  try { info = await Session.syncFromChain(); } catch (e) {}
+  add('合约侧会话注册', !!(info && info.registered), info && info.registered
+    ? `已注册，公钥${info.pubMatches ? '匹配' : '❌不匹配'}，剩余 ${(((info.expiresAt || 0) - Date.now() / 1000) / 3600).toFixed(1)} 小时，nonce=${state.sessNonce}`
+    : '未注册，需要开启无感模式');
+
+  let bal = '0';
+  try { bal = await Session.getSessionBalance(); } catch (e) {}
+  add('会话账户 PAXI 余额', null, `${fmtPaxi(bal)} PAXI（仅作兜底，正常由主钱包代付）`);
+
+  const fg = await Session.getFeegrant(true).catch(() => null);
+  add('链上 gas 代付授权(Feegrant)', !!(fg && fg.ok), fg
+    ? (fg.ok ? `有效，额度 ${fmtPaxi(fg.spendLimit)} PAXI，到期 ${new Date(fg.expiration).toLocaleString()}`
+             : `${fg.reason || '无效'}${fg.unknown ? '（查询失败，可能是网络问题）' : ''}`)
+    : '查询失败');
+
+  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, reason: (e && e.message) || '异常' }));
+  add('无感通道最终判定', !!v.ok, v.ok
+    ? (v.mode === 'feegrant' ? '✅ 可用（主钱包代付 gas）' : '✅ 可用（会话余额自付 gas）')
+    : `❌ 不可用：${v.reason}`);
+
+  if (Session._lastSeamlessError) add('上次无感失败原因', false, Session._lastSeamlessError);
+  return r;
 };
 
 window.Session = Session;

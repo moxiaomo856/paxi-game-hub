@@ -757,10 +757,16 @@ function renderMe() {
     <div class="card">
       <div class="card-title">🔓 无感模式</div>
       <div class="kv"><span class="k">状态</span><span class="v" id="seamlessStatus">检测中…</span></div>
+      <div class="kv"><span class="k">gas 代付授权</span><span class="v" id="seamlessFeegrant">检测中…</span></div>
+      <div class="kv"><span class="k">会话余额</span><span class="v" id="seamlessBal">检测中…</span></div>
       <div class="kv"><span class="k">到期时间</span><span class="v" id="seamlessExpiry">—</span></div>
-      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">开启无感模式（24 小时免密）</button>
+      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">开启无感模式（免密）</button>
+      <button class="btn btn-ghost" id="btnSelfCheck" style="margin-top:8px">🔍 无感自检（出问题先点这个）</button>
+      <div id="selfCheckBox" style="display:none;margin-top:10px"></div>
       <div class="desc" style="margin-top:8px">
-        开启后 24 小时内游戏操作不再弹钱包，gas 由主钱包代付。到期后需重新点击授权一次。充值 / 提现 / 管理员操作不受影响。
+        开启后游戏操作（抽卡 / 对战 / 迁移）不再弹钱包，gas 由主钱包代付 7 天；
+        若代付授权不可用，会话账户会用自带的 PAXI 余额付费，同样免密。
+        充值 / 提现 / 管理员操作不受影响。
       </div>
     </div>
 
@@ -803,40 +809,75 @@ async function renderSeamlessCard() {
   const btn = $('btnSeamless');
   if (!btn) return;
 
-  // 🟢 以「链上会话」为判断基准（会话才是真正决定能不能签名的）
+  // 🟢 第十八轮：状态一律以链上为准（会话注册 + Feegrant 授权 + 会话余额）
+  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, mode: 'none', reason: (e && e.message) || '检查失败' }));
   const info = await Session.syncFromChain().catch(() => null);
+  const fg = await Session.getFeegrant(true).catch(() => null);
   const nowSec = Math.floor(Date.now() / 1000);
   const hoursLeft = (info && info.expiresAt) ? Math.max(0, (info.expiresAt - nowSec) / 3600) : 0;
   const sessionOk = !!(info && info.registered && !info.expired && info.pubMatches);
 
-  // Feegrant 是否仍有效（gas 代付），作为辅助信息，不决定按钮状态
-  const feegrantOk = await Session.hasFeegrant().catch(() => false);
-
+  // 会话状态
   if (!sessionOk) {
     $('seamlessStatus').innerHTML = '<span class="warn-txt">未开启 / 已过期</span>';
     $('seamlessExpiry').textContent = '—';
-    btn.textContent = '开启无感模式（24 小时免密）';
   } else if (hoursLeft < 2) {
     $('seamlessStatus').innerHTML = '<span class="warn-txt">即将到期</span>';
     $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
-    btn.textContent = '续期无感模式（+24 小时）';
   } else {
-    $('seamlessStatus').innerHTML = feegrantOk
-      ? '<span class="ok-txt">正常</span>'
-      : '<span class="warn-txt">会话有效，gas 代付已过期</span>';
+    $('seamlessStatus').innerHTML = v.ok
+      ? '<span class="ok-txt">正常（免密可用）</span>'
+      : '<span class="warn-txt">会话有效，但无法付 gas</span>';
     $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
-    btn.textContent = '续期无感模式（+24 小时）';
   }
 
+  // gas 代付授权（链上真实查询）
+  if (fg && fg.ok) {
+    $('seamlessFeegrant').innerHTML = `<span class="ok-txt">有效</span>（额度 ${Session.fmtPaxi(fg.spendLimit)} PAXI，主钱包代付）`;
+  } else if (fg && fg.unknown) {
+    $('seamlessFeegrant').innerHTML = `<span class="warn-txt">查询失败</span>`;
+  } else {
+    $('seamlessFeegrant').innerHTML = '<span class="warn-txt">未授权 / 已过期</span>';
+  }
+
+  // 会话账户余额（Feegrant 不可用时的兜底付费方）
+  let bal = '0';
+  try { bal = await Session.getSessionBalance(); } catch (e) {}
+  const plan = await computeSeamlessFee().catch(() => null);
+  $('seamlessBal').textContent = plan
+    ? `${Session.fmtPaxi(bal)} PAXI（每笔约 ${Session.fmtPaxi(plan.amount)}）`
+    : `${Session.fmtPaxi(bal)} PAXI`;
+
+  btn.textContent = sessionOk ? '续期 / 重新授权无感模式' : '开启无感模式（免密）';
+
   btn.onclick = async () => {
-    showBusy('授权中…');
+    showBusy('授权中…（只需在钱包确认 1 次）');
     try {
       await Session.enableSeamlessMode();
-      showToast('无感模式已开启，24 小时内不再弹窗', 'success');
+      showToast('无感模式已开启，之后游戏操作不再弹钱包', 'success');
       await renderSeamlessCard();
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast((e && e.message) || '开通失败', 'error');
     } finally { hideBusy(); }
+  };
+
+  const sc = $('btnSelfCheck');
+  if (sc) sc.onclick = async () => {
+    const box = $('selfCheckBox');
+    box.style.display = 'block';
+    box.innerHTML = '<div class="desc">检测中…</div>';
+    try {
+      const r = await Session.selfCheck();
+      const icon = { ok: '✅', warn: '⚠️', fail: '❌' };
+      box.innerHTML = `<div class="desc" style="margin-bottom:6px">build ${r.build}</div>`
+        + r.items.map((it) => `<div class="kv" style="align-items:flex-start">
+             <span class="k" style="flex:0 0 42%">${icon[it.ok]} ${it.name}</span>
+             <span class="v" style="word-break:break-all;text-align:right">${it.detail || '—'}</span>
+           </div>`).join('');
+      console.log('[无感自检]', r);
+    } catch (e) {
+      box.innerHTML = `<div class="desc" style="color:#c0392b">自检失败：${(e && e.message) || e}</div>`;
+    }
   };
 }
 
@@ -882,9 +923,14 @@ function clearContracts() {
 
 function hardReset() {
   Object.values(LS).forEach((k) => localStorage.removeItem(k));
-  // 🟢 Bug I 修复：清除会话客户端缓存与内存私钥，避免将来改为"仅锁屏不刷新"时复用旧密钥/旧连接签名
+  // 🟢 第十八轮：连 gas 代付标记一起清掉，否则重开后仍会误判无感已开通
+  try { localStorage.removeItem('paxi_hub_feegrant_expires'); } catch (e) {}
   if (window.Session) {
-    window.Session._sessionClient = null;
+    // 清掉所有内存缓存（链上查询缓存、失败标记、待重授权标记）+ 内存私钥
+    window.Session._fgCache = { at: 0, granter: '', data: null };
+    window.Session._seamlessFailedOnce = false;
+    window.Session._forceRegrant = false;
+    window.Session._lastSeamlessError = null;
     if (typeof window.Session.lock === 'function') window.Session.lock();
   }
   showToast('已清除，请重新注册会话');

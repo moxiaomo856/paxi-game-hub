@@ -83,8 +83,60 @@ const NETWORK = {
   denom: 'upaxi',
   denomDisplay: 'PAXI',
   decimals: 6,
-  gasPrice: '0.025upaxi',
+  // 🔴 第十八轮真根因修复（2026-09-18）：paxi-mainnet 链上
+  //    minimum_gas_price = 0.05 upaxi/gas
+  //    （实测 GET /cosmos/base/node/v1beta1/config ->
+  //      {"minimum_gas_price":"0.050000000000000000upaxi"}）
+  //
+  //    此前这里写 0.025，**低于链下限一半**。会话交易在 CheckTx 的
+  //    checkTxFeeWithValidatorMinGasPrices 阶段就被拒（ErrInsufficientFee /
+  //    insufficient fees），连 mempool 都进不去 —— 所以会话地址在链上
+  //    「一笔交易都查不到」，而前端却只会抛一句含混的"gas 不足"。
+  //    主钱包通道一直用 0.05（见 sendTx 里的 gasPrice=0.05），所以它没事。
+  gasPrice: '0.05upaxi',
 };
+
+/** 无感通道 gas 上限。与主钱包通道一致（实测链上 game 操作 gasUsed 137k~452k，
+ *  主钱包通道 600k 从未 out of gas）。此前写 1_500_000 会让每笔手续费翻 2.5 倍，
+ *  白白烧掉 Feegrant 的 30 PAXI 额度。 */
+const SEAMLESS_GAS_LIMIT = 600_000;
+
+/**
+ * 取链上真实的最低 gas 价（upaxi/gas）。
+ * 链升级调高 minimum_gas_price 时前端自动跟随，不用再改代码。
+ * 查询失败时回落到 NETWORK.gasPrice。
+ */
+let _minGasPriceCache = null;
+async function fetchMinGasPrice() {
+  if (_minGasPriceCache) return _minGasPriceCache;
+  const fallback = parseFloat(String(NETWORK.gasPrice).replace(/[^0-9.]/g, '')) || 0.05;
+  try {
+    const r = await fetch(`${NETWORK.lcd}/cosmos/base/node/v1beta1/config`);
+    if (r.ok) {
+      const d = await r.json();
+      const v = parseFloat(String(d.minimum_gas_price || '').replace(/[a-z/]+/gi, ''));
+      if (v > 0) { _minGasPriceCache = v; return v; }
+    }
+  } catch (e) {
+    console.warn('[fetchMinGasPrice] 查询失败，用兜底值', fallback, e && e.message);
+  }
+  _minGasPriceCache = fallback;
+  return fallback;
+}
+
+/**
+ * 按链上最低 gas 价算手续费。Math.ceil 只会多给 1 upaxi，
+ * 保证算出来的 gasPrice 严格 >= 链下限（浮点 0.05*600000 会得到 30000.000000000004）。
+ */
+async function computeSeamlessFee(gasLimit = SEAMLESS_GAS_LIMIT) {
+  const price = await fetchMinGasPrice();
+  return {
+    gasLimit,
+    gasPrice: price,
+    amount: String(Math.ceil(price * gasLimit)),
+    denom: NETWORK.denom,
+  };
+}
 
 /** 会话密钥每日额度（必须 <= 合约的 SESSION_DAILY_LIMIT_CAP）。
  *  1000 万 TKCC/天，与链上 set_session_daily_limit_cap = 1e13 对齐。 */
@@ -563,11 +615,25 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
     try { await Session.ensureSeamless(); } catch (e) { /* 失败时走主钱包 */ }
   }
 
-  // 🟢 仅当 feegrant 本地标记仍有效才走无感通道，避免无谓地发起一次注定失败的会话签名
-  //    （未开启/已过期的，直接走主钱包；ensureSeamless 已在本页首次操作时尝试自动补开）。
-  const useSession = isSeamlessVariant
-    && state.sessPriv && state.sessAddr && state.wallet
-    && Session.hasFeegrantFlag();
+  // 🟢 第十八轮修复：无感通道可用性以【链上事实】为准，不再只看 localStorage 标记。
+  //    旧实现只看 'paxi_hub_feegrant_expires' 这个本地时间戳，它只能证明
+  //    「本机点过开启按钮」，证明不了「链上真的有授权」。标记还在、链上授权
+  //    已过期/被撤销时，会先发一笔注定失败的会话交易，再回退主钱包弹窗 ——
+  //    用户看到的就是"莫名其妙弹钱包 + 报 gas 不足"。
+  //    现在：feegrant 链上有效 → 无感；否则会话账户余额够付 gas → 无感；
+  //          两者都没有 → 直接走主钱包，并且把原因说清楚。
+  let useSession = false;
+  let seamlessReason = '';
+  if (isSeamlessVariant && state.sessPriv && state.sessAddr && state.wallet) {
+    try {
+      const v = await Session.verifySeamless();
+      useSession = !!(v && v.ok);
+      seamlessReason = (v && v.reason) || '';
+    } catch (e) {
+      useSession = false;
+      seamlessReason = (e && e.message) || '检查失败';
+    }
+  }
 
   const sender = useSession ? state.sessAddr : state.wallet.address;
 
@@ -586,16 +652,23 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
     try {
       return await Session.sendTxWithSession(messages, memo);
     } catch (e) {
-      console.warn('[execAnyContract] 无感通道失败，自动 fallback 主钱包:', e && e.message);
-      // 🟢 回退不再静默：弹一次提示告知原因，方便定位是 Feegrant 失效 / nonce 漂移 /
-      //    旧版脚本缓存等哪类问题（每次页面加载只提示一次，避免刷屏）。
+      const why = (e && e.message) || '未知原因';
+      console.warn('[execAnyContract] 无感通道失败，自动 fallback 主钱包:', why);
+      // 🟢 回退不再静默：把【链上原始错误】一并抛出，避免再出现"只报一句 gas 不足、
+      //    查不出到底哪一步错"的情况（本次排障就是被这种含混提示拖了好几轮）。
+      Session._lastSeamlessError = why;
       if (typeof showToast === 'function' && !execAnyContract._fallbackToasted) {
         execAnyContract._fallbackToasted = true;
         try {
-          showToast(`无感签名失败，本次改用钱包签名：${(e && e.message) || '未知原因'}`, 'error');
+          showToast(`无感通道失败，本次改用钱包签名。原因：${why}`, 'error');
         } catch (_) { /* UI 未就绪时忽略 */ }
       }
     }
+  } else if (isSeamlessVariant && typeof showToast === 'function'
+             && !execAnyContract._skipToasted && seamlessReason) {
+    // 根本没走无感通道也没弹钱包提示时，说明是本地判定拦下的，提示一次原因
+    execAnyContract._skipToasted = true;
+    try { showToast(`本次未走无感通道（${seamlessReason}），改用钱包签名`, 'error'); } catch (_) {}
   }
   return sendTx(messages, memo);
 }
