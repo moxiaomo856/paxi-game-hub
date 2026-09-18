@@ -386,68 +386,98 @@ Session.ensureSeamless = async function () {
   }
 };
 
-// 🔴🔴🔴 关键：用会话签名器发 TX，Feegrant 通过 StdFee.granter 生效
+// 🟢 无感广播（第十七轮，2026-09-18 重写）：彻底去掉对 Tendermint RPC websocket 的依赖。
+//
+// 旧实现用 SigningStargateClient.connectWithSigner(NETWORK.rpc) 直连 RPC（26657 端口）。
+//   问题：手机钱包内置浏览器对 RPC 的 WebSocket/CORS 极不友好，要么连不上、要么广播被拦，
+//   结果 sendTxWithSession 抛错 → 上层 execAnyContract 静默回退主钱包（即用户看到的"弹钱包 + gas 不足"）。
+//
+// 新实现（纯 LCD REST，零 RPC）：
+//   1) DirectSecp256k1Wallet.fromKey(会话私钥) 离线持有会话密钥
+//   2) SigningStargateClient.offline(wallet) —— 不连任何 RPC
+//   3) 账户 accNum/seq 从 LCD REST 取（与主钱包通道同源，移动端可用）
+//   4) client.sign(..., explicitSignerData) 离线签 SignDoc（fee.granter = 主钱包 → Feegrant 代付 gas）
+//   5) 用 PaxiCosmJS.TxRaw 组装 + 编码 → base64 → POST 到 LCD /cosmos/tx/v1beta1/txs 广播
 //
 // 为什么能绕过弹钱包？
-//   DirectSecp256k1Wallet 用我们自己的私钥对象签 SignDoc，
-//   不调用 window.paxihub.paxi.signAndSendTransaction（那才是弹钱包的）。
-//
-// 为什么 gas 能由主钱包付？（Feegrant 机制，E 修复点）
-//   Cosmos SDK 的 Feegrant 走的是 **StdFee.granter** 字段，而非 signAndBroadcast 的第 6 个参数。
-//   SigningStargateClient.signAndBroadcast 只有 5 个参数：
-//     signAndBroadcast(signerAddress, messages, fee, memo?, timeoutHeight?)
-//   第 6 个参数会被 JS 静默丢弃！所以必须把 granter 写进 fee 对象（fee.granter = 主钱包地址）。
-//   执行时 SDK 检查会话地址是否有主钱包的 allowance，有则用主钱包余额扣 gas。
-//
-// ⚠️ 错误写法（上一版，已废弃）：
-//   client.signAndBroadcast(addr, msgs, 'auto', memo, undefined, { feeGranter: ... })  // ← 第 6 参被丢弃
-//
-// 为什么合约能识别会话地址？
-//   合约里 SESSIONS[session_addr].user = main_wallet，
-//   所以 validate_and_consume_session 返回的 player 始终是主钱包。
+//   会话私钥本地签 SignDoc，不调用 window.paxihub.paxi.signAndSendTransaction。
+// 为什么 gas 由主钱包付？
+//   StdFee.granter = 主钱包地址，链上 Feegrant ante handler 据此扣主钱包余额。
 Session.sendTxWithSession = async function(messages, memo = '') {
-  const client = await Session.getSessionClient();
+  // 🟢 串行队列：会话账户只有一把 sequence 锁，连续两笔若都取同一 sequence 必冲突。
+  //    用 Promise 链串行化（不再像旧版那样 .catch(()=>{}) 吞掉错误）。
+  if (!Session._txQueue) Session._txQueue = Promise.resolve();
+  return Session._txQueue = Session._txQueue.then(() => Session._sendTxWithSessionCore(messages, memo));
+};
+
+Session._sendTxWithSessionCore = async function(messages, memo = '') {
+  const CJ = window.CosmJSSigning;
+  if (!CJ) throw new Error('CosmJS 未加载（无感签名需要 CosmJS），将回退主钱包');
+  const { DirectSecp256k1Wallet, SigningStargateClient, GasPrice } = CJ;
 
   // gas 必须由主钱包付（fee.granter），主钱包没连就报错，避免用错付费方
   if (!state.wallet || !state.wallet.address) {
     throw new Error('主钱包未连接，无法指定 gas 支付方');
   }
+  if (!state.sessPriv) throw new Error('会话私钥未生成');
 
-  // 1. 估算 gas（失败则用静态兜底，避免卡死）
-  let gasLimit = 1500000;
-  try {
-    const sim = await client.simulate(state.sessAddr, messages, memo);
-    gasLimit = Math.ceil(sim * 1.2);
-  } catch (e) {
-    console.warn('[无感 Tx] simulate 失败，用静态估算', e && e.message);
-  }
+  // 0. 确保 chainId 正确（优先用已缓存；否则经 LCD 取真实 chainId，最后兜底）
+  if (!state.chainId) state.chainId = await fetchChainId();
+  const chainId = state.chainId || 'paxi-mainnet';
 
-  // 2. 构造带 granter 的 StdFee（Feegrant 关键：granter 写进 fee，而非第 6 参数）
-  const { GasPrice } = window.CosmJSSigning;
+  // 1. 取会话账户 accNum/seq（LCD REST，不走 RPC）
+  const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${state.sessAddr}`);
+  if (!acctRes.ok) throw new Error(`获取会话账户失败 HTTP ${acctRes.status}`);
+  const acctData = await acctRes.json();
+  const acct = acctData.account?.base_account || acctData.account;
+  if (!acct) throw new Error('会话账户不存在（请先注册会话）');
+  const accountNumber = Number(acct.account_number);
+  const sequence = Number(acct.sequence);
+
+  // 2. 构造带 granter 的 StdFee（Feegrant：granter 写进 fee，而非第 6 参数）
+  const gasLimit = 1500000;                       // 固定上限，避免依赖 RPC simulate
   const gasPrice = GasPrice.fromString('0.025upaxi');
   const feeAmount = gasPrice.amount.multiply(gasLimit); // Decimal → 总 upaxi 数
   const fee = {
     amount: [{ denom: 'upaxi', amount: feeAmount.toString() }],
     gas: String(gasLimit),
-    granter: state.wallet.address, // 🟢 gas 由主钱包付（Feegrant）
+    granter: state.wallet.address,                 // 🟢 gas 由主钱包付（Feegrant）
   };
 
-  // 3. 串行队列：会话签名器不支持并发签名（每个 Tx 占着 account sequence）
-  if (!Session._txQueue) Session._txQueue = Promise.resolve();
+  // 3. 离线签名（不连 RPC）
+  const wallet = await DirectSecp256k1Wallet.fromKey(state.sessPriv, NETWORK.prefix);
+  const client = await SigningStargateClient.offline(wallet, { gasPrice });
+  const { signed, signature } = await client.sign(
+    state.sessAddr, messages, fee, memo,
+    { accountNumber, sequence, chainId },          // explicitSignerData：完全离线
+  );
 
-  const result = await new Promise((resolve, reject) => {
-    Session._txQueue = Session._txQueue.then(async () => {
-      try {
-        const r = await client.signAndBroadcast(state.sessAddr, messages, fee, memo);
-        if (r.code !== 0) reject(new Error(mapError(r.code, r.rawLog)));
-        else resolve(r.transactionHash);
-      } catch (e) {
-        reject(e);
-      }
-    }).catch(() => {}); // 保证下一个队列项能继续
+  // 4. 组装 TxRaw 并 base64 编码（用 UMD 的 TxRaw，已验证可用）
+  const txRaw = PaxiCosmJS.TxRaw.fromPartial({
+    bodyBytes: signed.bodyBytes,
+    authInfoBytes: signed.authInfoBytes,
+    signatures: [fromBase64(signature.signature)], // CosmJS 返回的 signature 是 base64 串
   });
+  const txBytes = PaxiCosmJS.TxRaw.encode(txRaw).finish();
+  const txBase64 = toBase64(txBytes);
 
-  return result;
+  // 5. LCD REST 广播（BROADCAST_MODE_SYNC：CheckTx 通过即返回，后续由 waitForTx 轮询上链）
+  const res = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tx_bytes: txBase64, mode: 'BROADCAST_MODE_SYNC' }),
+  });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    throw new Error(`广播失败 HTTP ${res.status}：${errBody.slice(0, 200)}`);
+  }
+  const txResp = await res.json();
+  const txr = txResp.tx_response || txResp;
+  const code = txr && txr.code !== undefined ? Number(txr.code) : 0;
+  if (code !== 0) throw new Error(mapError(code, (txr && txr.raw_log) || JSON.stringify(txResp).slice(0, 200)));
+  const hash = (txr && txr.txhash) || txResp.txhash;
+  if (!hash) throw new Error('广播未返回 txhash：' + JSON.stringify(txResp).slice(0, 200));
+  return hash;
 };
 
 // 开启无感模式（首次：主钱包弹窗 2 次）

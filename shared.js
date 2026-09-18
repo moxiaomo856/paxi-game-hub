@@ -630,10 +630,10 @@ async function approvePrc20(tokenContract, amount, spender) {
  * @returns {Promise<string>} txhash
  */
 async function sendTx(messages, memo = '') {
-  // 1. chainId
-  const chainId = await fetch(`${NETWORK.rpc}/status`)
-    .then((r) => r.json())
-    .then((d) => d.result.node_info.network);
+  // 1. chainId —— 🟢 改用 fetchChainId()（带 LCD 兜底 + 默认链 ID），
+  //    不再直接 fetch(NETWORK.rpc + '/status')：RPC（26657 端口）在手机钱包浏览器常因
+  //    CORS / 端口被墙而失败，会直接让主钱包通道也崩。
+  const chainId = await fetchChainId();
 
   // 2. sender — 直接从 paxihub 拿（和老板旧版一致，确保 public_key 是 Uint8Array）
   const sender = await window.paxihub.paxi.getAddress();
