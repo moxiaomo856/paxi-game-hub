@@ -512,6 +512,7 @@
   // ===================== 状态 =====================
   let userCards = [];        // CardInfo[]
   let sanguoTab = 'draw';
+  let sgJustDrew = false;   // 抽卡成功后置位：下一帧「我的卡牌」网格里的卡走翻牌入场
   let paramsCache = null;
   let tapCountCache = 0;     // 从 sanguo_config 读取的抽水地址数量；查询失败保持 0，doDraw 会拒绝（审计 P2-1）
   let sanguoPicked = [];     // 养成-出战顺序 / PVP / 混战 选中的 card_id 列表
@@ -588,21 +589,35 @@
   function renderSanguo() {
     const main = $('main');
     $('pageTitle').textContent = t('sg_title');
+    // 注：包裹在 .sg-page 内 —— 老版金色主题只作用于三国页内部，大厅保持中性、其他游戏不动
     main.innerHTML = `
-      <div class="back-bar" onclick="switchTab('home')">${t('back_home')}</div>
-      <div class="card">
-        <div class="card-title">${t('sg_title')}</div>
-        <div class="desc">${t('sg_subtitle')}</div>
-      </div>
-      <div style="display:flex;gap:4px;overflow-x:auto;margin-bottom:10px" id="sgTabs">
-        ${SANGUO_TABS.map((tb) => tabBtn(tb.id, t(tb.key))).join('')}
-      </div>
-      <div id="sgBody"></div>`;
+      <div class="sg-page">
+        <div class="back-bar" onclick="switchTab('home')">${t('back_home')}</div>
+        <div class="sg-stats">
+          <div class="sg-stat"><span class="ic">🏆</span><span class="num" id="sgWin">—</span><span class="lb">胜场</span></div>
+          <div class="sg-stat"><span class="ic">🃏</span><span class="num" id="sgStatCards">0</span><span class="lb">总卡牌</span></div>
+          <div class="sg-stat"><span class="ic">⚔️</span><span class="num" id="sgBattle">—</span><span class="lb">总对战</span></div>
+          <div class="sg-stat"><span class="ic">🧩</span><span class="num" id="sgFrag" style="color:#ffd700">0</span><span class="lb">碎片</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">${t('sg_title')}</div>
+          <div class="desc">${t('sg_subtitle')}</div>
+        </div>
+        <div class="card">
+          <button class="btn btn-gold" onclick="openCodex()" style="width:100%">📚 卡牌图鉴（${CARD_TEMPLATES.length} 将）</button>
+        </div>
+        <div id="sgTabs">
+          ${SANGUO_TABS.map((tb) => tabBtn(tb.id, t(tb.key))).join('')}
+        </div>
+        <div id="sgBody"></div>
+        <div class="battle-arena" id="battleArena"></div>
+      </div>`;
     document.querySelectorAll('#sgTabs .sg-tab').forEach((b) => {
       b.onclick = () => { sanguoTab = b.dataset.tab; updateSgTabs(); renderSanguoTab(); };
     });
     updateSgTabs();
     renderSanguoTab();
+    sgSyncWallet();
   }
 
   function tabBtn(id, label) {
@@ -745,8 +760,9 @@
       await loadSanguoCards();
       await refreshBalances();
       const tk = $('sgTkcc'); if (tk) tk.textContent = state.tkccBalance;
-      $('sgDrawLog').innerHTML = `<div class="hint ok">✅ ${pack3 ? t('draw_pack3') : t('draw_single')} ${t('draw_ok')}</div>`;
+      $('sgDrawLog').innerHTML = `<div class="hint ok draw-burst">✅ ${pack3 ? t('draw_pack3') : t('draw_single')} ${t('draw_ok')}<span class="gold-burst"></span></div>`;
       showToast(t('draw_ok_short'), 'success');
+      sgJustDrew = true;   // 让「我的卡牌」里的卡走翻牌入场（即便现在在抽卡页，切过去也会翻一次）
       if (sanguoTab === 'mycards') renderSanguoTab();
     } catch (e) {
       $('sgDrawLog').innerHTML = `<div class="hint err">❌ ${esc(e.message || e)}</div>`;
@@ -782,6 +798,7 @@
       grid.innerHTML = `<div class="hint" style="grid-column:1/-1">${t('empty_cards')}</div>`;
     } else {
       grid.innerHTML = userCards.map((c) => cardHtml(c)).join('');
+      sgJustDrew = false;   // 翻牌类已写进 HTML，立刻清位，避免下次无关重渲染再翻
     }
     // 老合约资产迁移入口（仅当管理员已放行该老合约时展示）
     renderSanguoMigrationEntry();
@@ -937,13 +954,15 @@
   function cardHtml(c) {
     const img = getCardImage(c.name);
     const col = rarityColor(c.rarity);
-    const lvTxt = (c.star > 1 || c.level > 0) ? `<div style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.6);color:#ffd54f;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
-    return `<div style="position:relative;border:2px solid ${col};border-radius:10px;overflow:hidden;background:#0d1322;aspect-ratio:3/4">
+    const cls = rarityClass(c.rarity);
+    const cid = esc(c.card_id);
+    const lvTxt = (c.star > 1 || c.level > 0) ? `<div class="sg-card-lv">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
+    return `<div class="sg-card ${cls}${sgJustDrew ? ' new-card' : ''}" onclick="openCardDetailFromId('${cid}')">
       ${lvTxt}
-      <img src="${img}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">
-      <div style="position:absolute;left:0;right:0;bottom:0;padding:3px 4px;background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);font-size:10px;line-height:1.2">
-        <div style="font-weight:700;color:#fff">${esc(c.name)}</div>
-        <div style="color:${col}">${rarityLabel(c.rarity)} · ${t('power_label')} ${power(c)}</div>
+      <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
+      <div class="sg-card-foot">
+        <div class="nm">${esc(c.name)}</div>
+        <div class="rr">${rarityLabel(c.rarity)} · ${t('power_label')} ${power(c)}</div>
       </div>
     </div>`;
   }
@@ -1018,11 +1037,13 @@
     if (state.wallet) {
       try {
         const s = await queryContract({ sanguo_ai_stats: { address: state.wallet.address } });
-        if (s) {
-          $('sgAiToday').textContent = (s.today_count != null ? s.today_count : '0') + ' / ' + (s.daily_limit != null ? s.daily_limit : '0');
-          $('sgAiLimit').textContent = s.daily_limit != null ? s.daily_limit : '—';
-          $('sgAiRate').textContent = s.win_rate != null ? s.win_rate : '—';
-        }
+      if (s) {
+        sgAiStats = s;
+        $('sgAiToday').textContent = (s.today_count != null ? s.today_count : '0') + ' / ' + (s.daily_limit != null ? s.daily_limit : '0');
+        $('sgAiLimit').textContent = s.daily_limit != null ? s.daily_limit : '—';
+        $('sgAiRate').textContent = s.win_rate != null ? s.win_rate : '—';
+        sgSyncWallet();
+      }
       } catch (e) { /* 忽略 */ }
     }
     $('sgAiGo').onclick = () => doAiBattle();
@@ -1048,8 +1069,10 @@
     const fee = p.ai_fee[diffIdx];
     showBusy(t('doing'));
     try {
-      await sanguoExec('SanguoAiBattle', { difficulty: diff }, { action: 'ai_battle', spend: fee });
+      const res = await sanguoExec('SanguoAiBattle', { difficulty: diff }, { action: 'ai_battle', spend: fee });
       showToast(t('ok_short'), 'success');
+      // 🟢 前端新增：对战竞技场（双方出牌 + 胜负 + 奖励）
+      try { await showAiBattleFromTx(res.tx, diff); } catch (_) { /* 展示失败不影响主流程 */ }
       renderSanguoTab();
     } catch (e) {
       $('sgAiLog').innerHTML = `<div class="hint err">❌ ${esc(e.message || e)}</div>`;
@@ -1101,6 +1124,8 @@
         if (f) {
           $('sgFragC').textContent = f.common; $('sgFragR').textContent = f.rare;
           $('sgFragE').textContent = f.epic; $('sgFragL').textContent = f.legend;
+          const sum = (Number(f.common) || 0) + (Number(f.rare) || 0) + (Number(f.epic) || 0) + (Number(f.legend) || 0);
+          sgFragCache = sum; sgSyncWallet();
         }
       } catch (e) {}
     }
@@ -1396,6 +1421,8 @@
       if (sgPendingAction === 'accept_pvp') {
         await sanguoExec('SanguoAcceptPvp', { match_id: sgPendingId, card_ids: sanguoPicked.slice() }, { action: 'accept_pvp', spend: p.pvp_fee });
         showToast(t('accept_ok'), 'success');
+        // 🟢 前端新增：对战竞技场（双方出牌 + 胜负）
+        try { await showPvpBattle(sgPendingId); } catch (_) { /* 展示失败不影响主流程 */ }
       } else if (sgPendingAction === 'join_royale') {
         await sanguoExec('SanguoJoinRoyale', { royale_id: sgPendingId, card_ids: sanguoPicked.slice() }, { action: 'join_royale', spend: p.royale_entry_fee });
         showToast(t('join_ok'), 'success');
@@ -1511,6 +1538,8 @@
     try {
       await sanguoExec('SanguoSettleRoyale', { royale_id: royaleId }, { action: 'settle_royale', spend: 0 });
       showToast(t('settle_ok'), 'success');
+      // 🟢 前端新增：混战竞技场（多方出牌 + 胜者）
+      try { await showRoyaleBattle(royaleId); } catch (_) { /* 展示失败不影响主流程 */ }
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1525,6 +1554,278 @@
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
   }
+
+  // ============================================================
+  // 新增前端展示：图鉴 / 卡牌详情 / 对战竞技场 / 头部统计联动
+  // ⚠️ 仅改渲染层；以下函数不发起任何合约写操作，
+  //    所有 sanguoExec / queryContract 调用均复用既有逻辑或只读查询。
+  // ============================================================
+  let sgAiStats = null;     // 来自 sanguo_ai_stats {total,wins,...}
+  let sgFragCache = null;   // 碎片总数（来自 sanguo_fragments）
+  let currentDetailCard = null; // 当前卡牌详情弹窗对应的卡
+
+  // 稀有度 → CSS 类（对应 index.html 的 .rarity-*）
+  function rarityClass(r) {
+    return { legend: 'rarity-legend', epic: 'rarity-epic', rare: 'rarity-rare', common: 'rarity-common' }[r] || '';
+  }
+
+  // ---- 卡牌详情弹窗 ----
+  // 根据 card_id 打开「我的卡」详情（可升星 / 升级 / 分解）
+  function openCardDetailFromId(cardId) {
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (!card) return;
+    openCardDetail(card, true);
+  }
+  window.openCardDetailFromId = openCardDetailFromId;
+
+  // 根据武将名打开图鉴卡详情（只读，不可养成）
+  function openCodexCard(name) {
+    const tpl = CARD_TEMPLATES.find((t) => t.name === name);
+    if (!tpl) return;
+    openCardDetail({
+      card_id: tpl.name, name: tpl.name, rarity: tpl.rarity,
+      attack: tpl.attack, defense: tpl.defense, star: 1, level: 0,
+      title: tpl.title, identity: tpl.identity,
+    }, false);
+  }
+  window.openCodexCard = openCodexCard;
+
+  function openCardDetail(card, owned) {
+    currentDetailCard = card;
+    const img = getCardImage(card.name);
+    const col = rarityColor(card.rarity);
+    const dImg = $('detailImg'); if (dImg) { dImg.src = img || ''; dImg.style.display = img ? '' : 'none'; }
+    const dName = $('detailName'); if (dName) { dName.textContent = card.name || '—'; dName.style.color = col; }
+    const dSub = $('detailSub'); if (dSub) dSub.textContent = card.identity || card.title || '';
+    const dRar = $('detailRarity'); if (dRar) { dRar.textContent = rarityLabel(card.rarity); dRar.style.color = col; }
+    const dId = $('detailIdentity'); if (dId) dId.textContent = card.identity || card.title || '—';
+    const dAtk = $('detailAtk'); if (dAtk) dAtk.textContent = (card.attack != null) ? card.attack : '—';
+    const dDef = $('detailDef'); if (dDef) dDef.textContent = (card.defense != null) ? card.defense : '—';
+    const dPow = $('detailPower'); if (dPow) dPow.textContent = power(card);
+    const dStar = $('detailStar'); if (dStar) dStar.textContent = '★' + (card.star || 1) + (card.level ? ' Lv' + card.level : '');
+    const dDesc = $('detailDesc');
+    if (dDesc) dDesc.textContent = `${card.identity || ''}${card.title ? '「' + card.title + '」' : ''}　攻击 ${card.attack != null ? card.attack : '?'} · 防御 ${card.defense != null ? card.defense : '?'} · 战力 ${power(card)}`;
+    const actions = document.querySelector('#cardDetailModal .star-actions');
+    if (actions) actions.style.display = owned ? '' : 'none';
+    const modal = $('cardDetailModal');
+    if (modal) modal.classList.add('active');
+  }
+  window.openCardDetail = openCardDetail;
+
+  function closeCardDetail() {
+    const modal = $('cardDetailModal');
+    if (modal) modal.classList.remove('active');
+    currentDetailCard = null;
+  }
+  window.closeCardDetail = closeCardDetail;
+
+  // 详情弹窗内的养成按钮：复用既有 do* 逻辑（已含无感签名 + 重渲染）
+  async function _refreshDetail(cardId) {
+    if (state.wallet) { try { await loadSanguoCards(); } catch (e) {} }
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (card) openCardDetail(card, true);
+    else closeCardDetail(); // 已分解（卡不存在）
+  }
+  async function detailStarUp() {
+    if (!currentDetailCard) return;
+    const cid = currentDetailCard.card_id;
+    await doStarUp(cid, false); await _refreshDetail(cid);
+  }
+  window.detailStarUp = detailStarUp;
+  async function detailStarUpFrag() {
+    if (!currentDetailCard) return;
+    const cid = currentDetailCard.card_id;
+    await doStarUp(cid, true); await _refreshDetail(cid);
+  }
+  window.detailStarUpFrag = detailStarUpFrag;
+  async function detailUpgrade() {
+    if (!currentDetailCard) return;
+    const cid = currentDetailCard.card_id;
+    await doUpgrade(cid); await _refreshDetail(cid);
+  }
+  window.detailUpgrade = detailUpgrade;
+  async function detailDecompose() {
+    if (!currentDetailCard) return;
+    const cid = currentDetailCard.card_id;
+    await doDecompose(cid); closeCardDetail();
+  }
+  window.detailDecompose = detailDecompose;
+
+  // ---- 卡牌图鉴 ----
+  async function openCodex() {
+    const ownedNames = new Set(userCards.map((c) => c.name));
+    const total = CARD_TEMPLATES.length;
+    const ownedCount = CARD_TEMPLATES.filter((tpl) => ownedNames.has(tpl.name)).length;
+    const prog = $('codexProgress');
+    if (prog) prog.textContent = `收集进度：${ownedCount} / ${total}（点击卡牌查看详情）`;
+    const grid = $('codexContent');
+    if (grid) {
+      grid.innerHTML = CARD_TEMPLATES.map((tpl) => {
+        const img = getCardImage(tpl.name);
+        const cls = rarityClass(tpl.rarity);
+        const have = ownedNames.has(tpl.name);
+        return `<div class="codex-card ${cls}" onclick="openCodexCard('${esc(tpl.name)}')">
+          ${have ? '' : '<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">未拥有</div>'}
+          <div class="cc-img"><img src="${img}" onerror="this.style.display='none'"></div>
+          <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div><div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
+        </div>`;
+      }).join('');
+    }
+    const modal = $('codexModal');
+    if (modal) modal.classList.add('active');
+  }
+  window.openCodex = openCodex;
+
+  function closeCodex() {
+    const modal = $('codexModal');
+    if (modal) modal.classList.remove('active');
+  }
+  window.closeCodex = closeCodex;
+
+  // ---- 对战竞技场 ----
+  // 解析 "[210, 180, 195]" 形式的战力数组
+  function parsePowers(str) {
+    if (!str) return [];
+    return String(str).replace(/[\[\]]/g, '').split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
+  }
+  // 用战力还原最接近的模板（用于展示 AI 出牌，纯前端展示用）
+  function bestMatchTemplate(p) {
+    let best = null, bd = Infinity;
+    for (const tpl of CARD_TEMPLATES) {
+      const d = Math.abs((tpl.attack + tpl.defense) - p);
+      if (d < bd) { bd = d; best = tpl; }
+    }
+    return best;
+  }
+  // 批量按 card_id 取卡（任意玩家均可，复用 sanguo_card 只读查询）
+  async function cardsFromIds(ids) {
+    const list = await Promise.all((ids || []).map(async (id) => {
+      try {
+        const c = await queryContract({ sanguo_card: { card_id: id } });
+        return c ? { name: c.name, rarity: c.rarity, power: power(c) } : { name: id, rarity: 'common', power: 0 };
+      } catch (e) { return { name: id, rarity: 'common', power: 0 }; }
+    }));
+    return list;
+  }
+  // 迷你卡（竞技场用）
+  function miniCardHtml(c) {
+    const img = c.img || getCardImage(c.name) || '';
+    const col = rarityColor(c.rarity);
+    const tag = c.ai ? '<div style="position:absolute;top:0;left:0;background:#8b2f1a;color:#fff;font-size:8px;padding:0 3px;border-bottom-right-radius:4px">AI</div>'
+                     : (c.win ? '<div style="position:absolute;top:0;right:0;background:#b8860b;color:#0d0a0c;font-size:8px;padding:0 3px;border-bottom-left-radius:4px">👑</div>' : '');
+    return `<div class="mini-card" style="position:relative;border-color:${col}">
+      ${tag}
+      <img src="${img}" onerror="this.style.display='none'">
+      <div class="mc-nm">${esc(c.name || '?')}</div>
+      ${c.power != null ? `<div style="font-size:8px;text-align:center;color:${col};padding-bottom:1px">⚔ ${c.power}</div>` : ''}
+    </div>`;
+  }
+  // 通用竞技场渲染：opts.sides 或 opts.you/opts.opp；result ∈ win|lose|draw
+  function showBattle(opts) {
+    const arena = $('battleArena');
+    if (!arena) return;
+    let sidesHtml;
+    if (opts.sides && opts.sides.length) {
+      sidesHtml = opts.sides.map((s) => `
+        <div class="side-label">${esc(s.label || '—')}（出战）</div>
+        <div class="side-cards">${(s.cards || []).map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>`).join('');
+    } else {
+      const you = (opts.you || []).map((c) => (Object.assign({}, c, { win: opts.result === 'win' })));
+      const opp = (opts.opp || []).map((c) => (Object.assign({}, c, { win: opts.result === 'lose' })));
+      sidesHtml = `
+        <div class="side-label">${esc(opts.youLabel || '你')}（出战）</div>
+        <div class="side-cards">${you.map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>
+        <div class="side-label">${esc(opts.oppLabel || '对手')}（出战）</div>
+        <div class="side-cards">${opp.map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>`;
+    }
+    const resultClass = opts.result === 'win' ? 'win' : opts.result === 'lose' ? 'lose' : 'draw';
+    const resultText = opts.result === 'win' ? '🏆 胜利！' : opts.result === 'lose' ? '💀 失败' : '🤝 平局';
+    const rewardHtml = (opts.reward != null && Number(opts.reward) > 0) ? `<div class="side-label">奖励：${opts.reward} TKCC</div>` : '';
+    const rwHtml = (opts.roundWins !== null && opts.roundWins !== undefined && opts.roundWins !== '') ? `<div class="side-label">三局 ${opts.roundWins} 胜</div>` : '';
+    arena.innerHTML = `
+      <div class="vs-banner">⚔️ 对战结果</div>
+      ${sidesHtml}
+      ${rwHtml}${rewardHtml}
+      <div class="final-result ${resultClass}">${resultText}</div>`;
+    arena.classList.add('show');
+    try { arena.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+  }
+  window.showBattle = showBattle;
+
+  // AI 对战：从交易事件还原双方出牌 + 胜负 + 奖励
+  async function showAiBattleFromTx(tx, diff) {
+    const ev = parseTxEvents(tx, ['result', 'player_powers', 'ai_powers', 'round_wins', 'reward']);
+    const result = (ev.result && ev.result[0]) || 'lose';
+    const playerPowers = parsePowers(ev.player_powers && ev.player_powers[0]);
+    const aiPowers = parsePowers(ev.ai_powers && ev.ai_powers[0]);
+    const roundWins = (ev.round_wins && ev.round_wins[0]) || '';
+    const reward = (ev.reward && ev.reward[0]) || '0';
+    // 我方出牌：优先链上出战顺序，回退前 3 张
+    let orderIds = [];
+    try { const bo = await queryContract({ sanguo_battle_order: { player: state.wallet.address } }); orderIds = (bo && bo.order) || []; } catch (e) {}
+    let you = orderIds.map((id) => userCards.find((c) => c.card_id === id)).filter(Boolean);
+    if (you.length < 3) you = userCards.slice(0, 3);
+    you = you.slice(0, 3).map((c) => ({ name: c.name, rarity: c.rarity, power: power(c) }));
+    // 对手（AI）：用战力还原最接近模板作展示（带 AI 标记）
+    const opp = aiPowers.map((p) => {
+      const tpl = bestMatchTemplate(p);
+      return { name: tpl ? tpl.name : 'AI 战将', rarity: tpl ? tpl.rarity : 'common', power: p, ai: true };
+    });
+    showBattle({ you, opp, result, youLabel: '你', oppLabel: 'AI 难度 ' + diff, roundWins, reward });
+  }
+  window.showAiBattleFromTx = showAiBattleFromTx;
+
+  // PVP：双方真实出牌（按 card_id 取卡）+ 胜负
+  async function showPvpBattle(matchId) {
+    const m = await queryContract({ sanguo_pvp: { match_id: matchId } });
+    if (!m) return;
+    const ch = await cardsFromIds(m.challenger_order || []);
+    const op = await cardsFromIds(m.opponent_order || []);
+    const winner = m.winner || '';
+    let result = 'draw';
+    if (winner) {
+      if (state.wallet && winner === state.wallet.address) result = 'win';
+      else if (state.wallet && (m.challenger === state.wallet.address || m.opponent === state.wallet.address)) result = 'lose';
+    }
+    showBattle({ you: ch, opp: op, youLabel: '挑战方', oppLabel: '应战方', result });
+  }
+  window.showPvpBattle = showPvpBattle;
+
+  // 混战：多方真实出牌 + 胜者
+  async function showRoyaleBattle(royaleId) {
+    const r = await queryContract({ sanguo_royale: { royale_id: royaleId } });
+    if (!r) return;
+    const players = r.players || [];
+    const orders = r.player_orders || [];
+    const winner = r.winner || '';
+    let result = 'draw';
+    if (winner) {
+      if (state.wallet && winner === state.wallet.address) result = 'win';
+      else if (state.wallet && players.includes(state.wallet.address)) result = 'lose';
+    }
+    const sides = [];
+    for (let i = 0; i < players.length; i++) {
+      const cards = await cardsFromIds(orders[i] || []);
+      const isMe = state.wallet && players[i] === state.wallet.address;
+      const isWin = winner && players[i] === winner;
+      const short = players[i].slice(0, 6) + '…' + players[i].slice(-4);
+      sides.push({ label: (isMe ? '你' : short) + (isWin ? ' 👑' : ''), cards });
+    }
+    showBattle({ sides, result });
+  }
+  window.showRoyaleBattle = showRoyaleBattle;
+
+  // ---- 头部统计联动（供 index.html 包装 refreshBalances 调用）----
+  function sgSyncWallet() {
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    if (userCards) set('sgStatCards', userCards.length);
+    if (sgAiStats) {
+      set('sgWin', sgAiStats.wins != null ? sgAiStats.wins : '—');
+      set('sgBattle', sgAiStats.total != null ? sgAiStats.total : '—');
+    }
+    if (sgFragCache != null) set('sgFrag', sgFragCache);
+  }
+  window.__sgSyncWallet = sgSyncWallet;
 
   // ============================================================
   // 注册到大厅（关键：否则大厅不显示三国卡片）
