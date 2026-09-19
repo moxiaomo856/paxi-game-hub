@@ -978,9 +978,12 @@
       return;
     }
     grid.innerHTML = userCards.map((c) => {
-      const sel = sanguoPicked.includes(c.card_id);
+      const idx = sanguoPicked.indexOf(c.card_id);
+      const sel = idx >= 0;
       const col = rarityColor(c.rarity);
-      return `<div class="sg-pick" data-cid="${c.card_id}" style="border:2px solid ${sel ? col : '#2a3756'};border-radius:8px;padding:4px;cursor:pointer;background:${sel ? 'rgba(255,255,255,.06)' : '#0d1322'};text-align:center">
+      const badge = sel ? `<div class="sg-pick-ord">${idx + 1}</div>` : '';
+      return `<div class="sg-pick" data-cid="${c.card_id}" style="position:relative;border:2px solid ${sel ? col : '#2a3756'};border-radius:8px;padding:4px;cursor:pointer;background:${sel ? 'rgba(255,255,255,.06)' : '#0d1322'};text-align:center">
+        ${badge}
         <div style="font-size:11px;font-weight:700;color:#fff">${esc(c.name)}</div>
         <div style="font-size:9px;color:${col}">${rarityLabel(c.rarity)} · ${power(c)}</div>
       </div>`;
@@ -1129,6 +1132,16 @@
         }
       } catch (e) {}
     }
+    // 🟢 多钱包 + 出战顺序：预填链上已存的出战顺序（按当前钱包），顺序即出牌顺序：第 1 个先出
+    if (state.wallet) {
+      try {
+        const bo = await queryContract({ sanguo_battle_order: { player: state.wallet.address } });
+        if (bo && bo.order && bo.order.length) {
+          const ids = bo.order.filter((id) => userCards.some((c) => c.card_id === id));
+          if (ids.length) sanguoPicked = ids;
+        }
+      } catch (e) {}
+    }
     sanguoRenderPicker('sgOrderPick', 8);
     $('sgSetOrder').onclick = () => doSetBattleOrder();
     $('sgCraft').onclick = () => doCraft();
@@ -1167,7 +1180,8 @@
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoSetBattleOrder', { order: sanguoPicked.slice() }, { action: 'set_battle_order', spend: 0 });
-      showToast(t('ok_short'), 'success');
+      const names = sanguoPicked.map((id) => { const c = userCards.find((x) => x.card_id === id); return c ? c.name : id; });
+      showToast(`${t('ok_short')} · 出牌顺序：${names.join(' → ')}`, 'success');
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1759,7 +1773,9 @@
     const playerPowers = parsePowers(ev.player_powers && ev.player_powers[0]);
     const aiPowers = parsePowers(ev.ai_powers && ev.ai_powers[0]);
     const roundWins = (ev.round_wins && ev.round_wins[0]) || '';
-    const reward = (ev.reward && ev.reward[0]) || '0';
+    const rewardRaw = (ev.reward && ev.reward[0]) || '0';
+    // 🟢 修复：链上 reward 是 raw（TKCC 精度 6），必须除以 1e6 再展示
+    const reward = fromRawUnits(rewardRaw, 6);
     // 我方出牌：优先链上出战顺序，回退前 3 张
     let orderIds = [];
     try { const bo = await queryContract({ sanguo_battle_order: { player: state.wallet.address } }); orderIds = (bo && bo.order) || []; } catch (e) {}

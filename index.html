@@ -380,6 +380,14 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 }
 .sg-card:hover { filter: brightness(1.12); z-index:3; }
 .sg-card:active { filter: brightness(.92); }
+/* 出战顺序序号徽标（养成页 picker：第 1 个先出，第 2 个第二出…） */
+.sg-pick-ord {
+  position:absolute; top:-7px; left:-7px; z-index:4;
+  min-width:18px; height:18px; padding:0 4px; border-radius:9px;
+  background:linear-gradient(135deg,#ffd700,#ff9d2e); color:#3a2400;
+  font-size:11px; font-weight:800; line-height:18px; text-align:center;
+  box-shadow:0 1px 4px rgba(0,0,0,.5); border:1px solid #ffe9a8;
+}
 .sg-card .sg-card-img {
   flex:4; min-height:0; display:flex; align-items:center; justify-content:center;
   background: radial-gradient(ellipse at 50% 80%, rgba(60,40,20,0.2), transparent 70%);
@@ -601,8 +609,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
      第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
      加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
      该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
-<script src="paxi-cosmjs.umd.js?v=20260919-3" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
-<script src="compat.js?v=20260919-3"></script>
+<script src="paxi-cosmjs.umd.js?v=20260919-5" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260919-5"></script>
 <script>
   // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
   if (typeof window.PaxiCosmJS === 'undefined') {
@@ -642,16 +650,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260919-3';</script>
-<script src="shared.js?v=20260919-3"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260919-3"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260919-3"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260919-3"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260919-5';</script>
+<script src="shared.js?v=20260919-5"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260919-5"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260919-5"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260919-5"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260919-3"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260919-3"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260919-5"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260919-5"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 
 <!-- 🟢 三国·卡牌：连接钱包后同步统计（仅当三国页已打开时刷新）；底部 Tab 高亮同步。

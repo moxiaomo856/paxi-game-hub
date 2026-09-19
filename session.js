@@ -82,9 +82,18 @@ async function decryptPriv(blobStr, passphrase) {
   return new Uint8Array(pt);
 }
 
+// 🟢 多钱包支持（2026-09-19）：按钱包地址隔离会话存储。
+//   之前 localStorage 是全局单份，切钱包后会沿用别人注册的会话，
+//   导致抽卡/对战/奖励全记到别人名下（见 2026-09-18 那次线上事故）。
+//   现在每个钱包各自保存/恢复自己的 session 密钥，互不干扰。
+function _sk(base) {
+  const a = (typeof state !== 'undefined' && state.wallet && state.wallet.address) || '';
+  return a ? `${base}__${a}` : base;
+}
+
 const Session = {
   async load() {
-    const raw = localStorage.getItem(LS.sessPriv);
+    const raw = localStorage.getItem(_sk(LS.sessPriv));
     if (!raw) return false;
     if (raw.startsWith('{')) {
       // 加密存储：先保留密文，等 unlock() 用密码解开（内存中私钥保持 null）
@@ -102,9 +111,9 @@ const Session = {
       state.sessPriv = hexToBytes(raw);
       state.legacyPlain = true;
     }
-    state.sessPubHex = localStorage.getItem(LS.sessPub) || '';
-    state.sessAddr = localStorage.getItem(LS.sessAddr) || '';
-    state.sessNonce = Number(localStorage.getItem(LS.sessNonce) || '0');
+    state.sessPubHex = localStorage.getItem(_sk(LS.sessPub)) || '';
+    state.sessAddr = localStorage.getItem(_sk(LS.sessAddr)) || '';
+    state.sessNonce = Number(localStorage.getItem(_sk(LS.sessNonce)) || '0');
     return !!(state.sessAddr && state.sessPubHex);
   },
 
@@ -129,15 +138,15 @@ const Session = {
     if (pw) {
       // 用密码加密后只落盘密文（推荐路径）
       const blob = await encryptPriv(priv, pw);
-      localStorage.setItem(LS.sessPriv, blob);
+      localStorage.setItem(_sk(LS.sessPriv), blob);
       state.encBlob = blob;
     } else {
       // 无密码兜底（不推荐）：仍以明文存储，保持旧行为
-      localStorage.setItem(LS.sessPriv, bytesToHex(priv));
+      localStorage.setItem(_sk(LS.sessPriv), bytesToHex(priv));
     }
-    localStorage.setItem(LS.sessPub, pubHex);
-    localStorage.setItem(LS.sessAddr, addr);
-    localStorage.setItem(LS.sessNonce, '0');
+    localStorage.setItem(_sk(LS.sessPub), pubHex);
+    localStorage.setItem(_sk(LS.sessAddr), addr);
+    localStorage.setItem(_sk(LS.sessNonce), '0');
     return addr;
   },
 
@@ -177,7 +186,7 @@ const Session = {
     const info = r.info;
     state.sessNonce = Number(info.nonce);
     state.sessInfo = info;
-    localStorage.setItem(LS.sessNonce, String(state.sessNonce));
+    localStorage.setItem(_sk(LS.sessNonce), String(state.sessNonce));
 
     return {
       registered: true,
@@ -186,6 +195,7 @@ const Session = {
       expiresAt: Number(info.expires_at),
       dailyLimit: info.daily_limit,
       dailyUsed: info.daily_used,
+      user: info.user || '',   // 🟢 会话归属（哪个钱包注册的），用于换钱包检测
     };
   },
 
@@ -230,7 +240,7 @@ const Session = {
 
   bumpNonce() {
     state.sessNonce = Number(state.sessNonce) + 1;
-    localStorage.setItem(LS.sessNonce, String(state.sessNonce));
+    localStorage.setItem(_sk(LS.sessNonce), String(state.sessNonce));
   },
 
   /**
@@ -247,7 +257,7 @@ const Session = {
       //   - 旧版用户有加密 blob（设过密码）→ 清掉密文重新生成，彻底告别密码
       if (state.encBlob) {
         console.warn('[Session] 检测到旧版加密会话，自动清除并重新生成（零密码模式）');
-        localStorage.removeItem(LS.sessPriv);
+        localStorage.removeItem(_sk(LS.sessPriv));
         state.encBlob = null;
       }
       await this.generate(null);  // null = 明文，不加密
@@ -257,6 +267,15 @@ const Session = {
     if (!chain.registered) return { ok: false, needRegister: true, reason: '会话尚未在链上注册' };
     if (!chain.pubMatches) return { ok: false, needRegister: true, reason: '本地密钥与链上注册的不一致' };
     if (chain.expired) return { ok: false, needRegister: true, reason: '会话已过期，需续期' };
+    // 🟢 修复（2026-09-19）：会话归属校验。
+    //   localStorage 的 session 是全局单份，不区分钱包。换钱包登录后若沿用旧会话，
+    //   合约会把游戏行为（抽卡/对战/奖励）记到【会话注册者】名下，而不是当前钱包 ——
+    //   表现为：抽卡"不加卡"、合约余额"不动"、PVP 报 Card not found（校验的是别人的卡）。
+    //   现在检测到会话 user ≠ 当前钱包 → 判定 needRegister，由 requireSanguo 自动重新注册绑定。
+    const myAddr = state.wallet && state.wallet.address;
+    if (myAddr && chain.user && chain.user !== myAddr) {
+      return { ok: false, needRegister: true, reason: '会话属于其他钱包，将为当前钱包重新绑定' };
+    }
     return { ok: true, needRegister: false, info: chain };
   },
 };
