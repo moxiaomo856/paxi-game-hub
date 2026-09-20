@@ -126,6 +126,7 @@
       'tab_proposal': '提案',
       'tab_pvp': 'PVP',
       'tab_royale': '混战',
+      'tab_ledger': '📊 收入对账',
       'ai_title': 'AI 对战',
       'ai_desc': '选择难度挑战 AI，胜则赢取 TKCC 奖励',
       'ai_diff': '难度',
@@ -260,6 +261,7 @@
       'tab_proposal': 'Proposal',
       'tab_pvp': 'PVP',
       'tab_royale': 'Royale',
+      'tab_ledger': '📊 Ledger',
       'ai_title': 'AI Battle',
       'ai_desc': 'Pick a difficulty and battle the AI; win TKCC rewards',
       'ai_diff': 'Difficulty',
@@ -519,6 +521,12 @@
   let sgPendingAction = null; // 'accept_pvp' | 'join_royale'（通用卡牌选择面板）
   let sgPendingId = null;     // 对应的 match_id / royale_id
 
+  // 收入对账页仅对管理员钱包可见（管理员 = 部署者钱包）
+  const SG_ADMIN = 'paxi1rdarmm997hqwfdgl9wvnpffe28zmex3kfyg7xd';
+  function isSgAdmin() {
+    return !!(state.wallet && state.wallet.address && state.wallet.address === SG_ADMIN);
+  }
+
   // 七页签（完整玩法），全部走无感签名；标签用 t() 动态取，跟随大厅语言切换
   const SANGUO_TABS = [
     { id: 'draw',      key: 'tab_draw' },
@@ -528,6 +536,7 @@
     { id: 'proposal',  key: 'tab_proposal' },
     { id: 'pvp',       key: 'tab_pvp' },
     { id: 'royale',    key: 'tab_royale' },
+    { id: 'ledger',    key: 'tab_ledger', admin: true },
   ];
 
   async function loadParams() {
@@ -607,7 +616,7 @@
           <button class="btn btn-gold" onclick="openCodex()" style="width:100%">📚 卡牌图鉴（${CARD_TEMPLATES.length} 将）</button>
         </div>
         <div id="sgTabs">
-          ${SANGUO_TABS.map((tb) => tabBtn(tb.id, t(tb.key))).join('')}
+          ${SANGUO_TABS.filter((tb) => !tb.admin || isSgAdmin()).map((tb) => tabBtn(tb.id, t(tb.key))).join('')}
         </div>
         <div id="sgBody"></div>
         <div class="battle-arena" id="battleArena"></div>
@@ -641,8 +650,140 @@
       proposal: renderProposal,
       pvp: renderPvp,
       royale: renderRoyale,
+      ledger: renderLedger,
     };
+    // 收入对账页仅管理员可见：非管理员误入时回退到抽卡页
+    if (sanguoTab === 'ledger' && !isSgAdmin()) { sanguoTab = 'draw'; }
     (fns[sanguoTab] || renderDraw)(body);
+  }
+
+  // ============================================================
+  // 收入对账（仅管理员可见）：逐笔解析 11 个抽水地址的抽卡 wasm 事件，
+  // 显示每个地址真实收到的 PAXI + TKCC（链上为准，不受钱包/Ping.pub 的 PRC-20 解析错误影响）。
+  // 注：RPC(tx_search) 在手机钱包内置浏览器可能受限（CORS/端口），失败则降级显示「—」
+  //     并提示用桌面浏览器查看；当前余额走 LCD 始终可用。
+  // ============================================================
+  async function rpcSearchAll(query) {
+    const base = NETWORK.rpc + '/tx_search';
+    const out = [];
+    for (let page = 1; page <= 30; page++) {
+      const url = `${base}?query=${encodeURIComponent('"' + query + '"')}&order_by="desc"&page=${page}&per_page=50`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('RPC ' + r.status);
+      const d = await r.json();
+      const txs = (d && d.result && d.result.txs) || [];
+      out.push(...txs);
+      const total = Number((d && d.result && d.result.total_count) || 0);
+      if (!txs.length || out.length >= total) break;
+    }
+    return out;
+  }
+
+  // 解析一笔抽卡交易事件：仅统计「游戏合约发出」的 TKCC 转账/销毁与 PAXI 原生转账
+  function parseDrawTx(evs, gameAddr, tkccAddr) {
+    let paxi = 0n, tkcc = 0n, burn = 0n, isDraw = false;
+    const byType = {};
+    for (const e of evs || []) { (byType[e.type] = byType[e.type] || []).push(e); }
+    for (const e of (byType.wasm || [])) {
+      const kv = {}; for (const a of e.attributes) kv[a.key] = a.value;
+      if (kv.action === 'draw_pack' || kv.action === 'draw_pack3') isDraw = true;
+    }
+    if (!isDraw) return null;
+    for (const e of (byType.wasm || [])) {
+      const kv = {}; for (const a of e.attributes) kv[a.key] = a.value;
+      if (kv._contract_address === tkccAddr && kv.from === gameAddr) {
+        if (kv.action === 'transfer') { try { tkcc += BigInt(kv.amount || '0'); } catch (_) {} }
+        if (kv.action === 'burn') { try { burn += BigInt(kv.amount || '0'); } catch (_) {} }
+      }
+    }
+    for (const e of (byType.transfer || [])) {
+      const kv = {}; for (const a of e.attributes) kv[a.key] = a.value;
+      if (kv.sender === gameAddr && kv.amount && kv.amount.endsWith('upaxi')) {
+        try { paxi += BigInt(kv.amount.replace('upaxi', '')); } catch (_) {}
+      }
+    }
+    return { paxi, tkcc, burn };
+  }
+
+  async function loadLedger() {
+    const body = $('sgLedgerBody');
+    const hint = $('sgLedgerHint');
+    if (hint) hint.textContent = '查询中…';
+    if (body) body.innerHTML = '<div class="hint">⏳ 正在逐笔解析链上抽卡事件…</div>';
+
+    const gameAddr = CONTRACTS.game;
+    const tkccAddr = CONTRACTS.tkcc;
+    let taps = [];
+    try {
+      const c = await queryContract({ sanguo_config: {} });
+      taps = (c && Array.isArray(c.tap_addresses)) ? c.tap_addresses : [];
+    } catch (e) { taps = []; }
+
+    const agg = taps.map((addr) => ({ addr, paxi: 0n, tkcc: 0n, count: 0 }));
+    let burnTotal = 0n, scanOk = false;
+    try {
+      for (let i = 0; i < taps.length; i++) {
+        const txs = await rpcSearchAll(`wasm.to='${taps[i]}'`);
+        for (const tx of txs) {
+          const evs = (tx.tx_result && tx.tx_result.events) || tx.events || [];
+          const r = parseDrawTx(evs, gameAddr, tkccAddr);
+          if (r) { agg[i].paxi += r.paxi; agg[i].tkcc += r.tkcc; agg[i].count += 1; burnTotal += r.burn; }
+        }
+      }
+      scanOk = true;
+    } catch (e) {
+      if (hint) hint.textContent = '⚠️ 逐笔统计需访问链节点(RPC)，当前环境受限（如在手机钱包内打开）。请在桌面浏览器打开本页以查看逐笔收到。';
+    }
+
+    if (!body) return;
+    let rows = '', sumP = 0n, sumT = 0n;
+    for (const a of agg) { sumP += a.paxi; sumT += a.tkcc;
+      rows += `<tr>
+        <td style="font-size:10px;word-break:break-all;max-width:140px">${a.addr}</td>
+        <td style="text-align:center">${a.count}</td>
+        <td>${scanOk ? fromRawUnits(a.paxi.toString()) : '—'}</td>
+        <td>${scanOk ? fromRawUnits(a.tkcc.toString()) : '—'}</td>
+      </tr>`;
+    }
+    body.innerHTML = `
+      <div class="card">
+        <div class="desc">${scanOk ? '✅ 已逐笔解析全部抽卡交易（链上为准）。' : '⚠️ 逐笔解析不可用，下列“收到”列为 — 。'}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+          <thead><tr style="text-align:left;color:#ffd700">
+            <th>抽水地址</th><th style="text-align:center">笔数</th><th>收到 PAXI</th><th>收到 TKCC</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          ${scanOk ? `<tfoot><tr style="font-weight:bold;border-top:1px solid #b8860b">
+            <td>合计</td><td></td>
+            <td>${fromRawUnits(sumP.toString())}</td>
+            <td>${fromRawUnits(sumT.toString())}</td>
+          </tr></tfoot>` : ''}
+        </table>
+      </div>
+      ${scanOk ? `<div class="card"><div class="kv"><span class="k">游戏合约累计销毁 TKCC</span><span class="v" style="color:#ff8c69">${fromRawUnits(burnTotal.toString())}</span></div>
+        <div class="desc">销毁为真实 burn（token 永久消失），不进任何钱包；与每笔抽卡 TKCC 的 40% 一致。</div></div>` : ''}
+      <div class="hint" style="margin-top:8px">说明：钱包/Ping.pub 对 PRC-20 的 wasm 转账事件解析有误（常把 10 PAXI 错标成 10 TKCC、漏显 12 万 TKCC）。本页直接读链上事件，数字与链一致。</div>`;
+    if (hint && scanOk) hint.textContent = `✅ 完成，共 ${taps.length} 个抽水地址`;
+  }
+
+  async function renderLedger(body) {
+    if (!isSgAdmin()) {
+      body.innerHTML = '<div class="hint err">⛔ 此页面仅管理员可见。</div>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="card">
+        <div class="card-title">📊 收入对账（管理员）</div>
+        <div class="desc">逐笔解析 11 个抽水地址的抽卡 wasm 事件，显示真实收到的 PAXI + TKCC（链上为准，不受钱包显示影响）。含游戏合约累计销毁。</div>
+      </div>
+      <div class="card">
+        <button class="btn btn-primary" id="sgLedgerRefresh">🔄 刷新对账</button>
+        <span id="sgLedgerHint" class="hint"></span>
+      </div>
+      <div id="sgLedgerBody">点击「刷新对账」开始加载…</div>`;
+    const btn = $('sgLedgerRefresh');
+    if (btn) btn.onclick = () => loadLedger();
+    loadLedger();
   }
 
   // ============================================================
@@ -1024,6 +1165,11 @@
         <div class="kv"><span class="k">我的卡牌</span><span class="v" id="sgAiCards">${cardCount} / 3</span></div>
       </div>
       <div class="card">
+        <div class="card-title">🃏 选择出战卡牌</div>
+        <div class="desc">最多选 3 张，顺序即出牌顺序（第 1 张先出）。不选则沿用你已有的出战顺序。</div>
+        <div id="sgAiPick" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;margin-top:8px"></div>
+      </div>
+      <div class="card">
         <div class="card-title">${t('ai_diff')}</div>
         <select id="sgAiDiff" class="input">
           ${[1,2,3,4,5].map((d) => {
@@ -1049,6 +1195,17 @@
       }
       } catch (e) { /* 忽略 */ }
     }
+    // 🟢 AI 也能像 PVP 那样选派：进入页面时用链上出战顺序预填选卡面板（最多 3 张）
+    if (state.wallet && userCards.length) {
+      try {
+        const bo = await queryContract({ sanguo_battle_order: { player: state.wallet.address } });
+        if (bo && bo.order && bo.order.length) {
+          const ids = bo.order.filter((id) => userCards.some((c) => c.card_id === id)).slice(0, 3);
+          if (ids.length) sanguoPicked = ids;
+        }
+      } catch (e) {}
+      sanguoRenderPicker('sgAiPick', 3);
+    }
     $('sgAiGo').onclick = () => doAiBattle();
   }
 
@@ -1070,6 +1227,10 @@
     const diff = Number(($('sgAiDiff') || {}).value || 1);
     const diffIdx = diff - 1;
     const fee = p.ai_fee[diffIdx];
+    // 🟢 AI 也能像 PVP 那样选派：开战前把当前选中的卡设为出战顺序（合约 ai_battle 读取此顺序）
+    if (sanguoPicked.length >= 3) {
+      try { await ensureBattleOrder(); } catch (e) { /* 设置失败不阻断，合约会用已有顺序或高战力兜底 */ }
+    }
     showBusy(t('doing'));
     try {
       const res = await sanguoExec('SanguoAiBattle', { difficulty: diff }, { action: 'ai_battle', spend: fee });
@@ -1081,6 +1242,22 @@
       $('sgAiLog').innerHTML = `<div class="hint err">❌ ${esc(e.message || e)}</div>`;
       showToast(t('fail_prefix') + (e.message || e), 'error');
     } finally { hideBusy(); }
+  }
+
+  // 🟢 AI/PVP 共用：确保链上出战顺序 = 当前选中的 sanguoPicked（前 3 张），
+  //    与链上不一致才发交易，避免无谓的 set_battle_order。
+  async function ensureBattleOrder() {
+    const want = sanguoPicked.slice(0, 3);
+    if (want.length < 3) return;
+    let cur = [];
+    try {
+      const bo = await queryContract({ sanguo_battle_order: { player: state.wallet.address } });
+      cur = (bo && bo.order) || [];
+    } catch (e) {}
+    const same = cur.length === want.length && cur.every((id, i) => id === want[i]);
+    if (!same) {
+      await sanguoExec('SanguoSetBattleOrder', { order: want }, { action: 'set_battle_order', spend: 0 });
+    }
   }
 
   // ============================================================
