@@ -111,7 +111,7 @@ async function fetchMinGasPrice() {
   if (_minGasPriceCache) return _minGasPriceCache;
   const fallback = parseFloat(String(NETWORK.gasPrice).replace(/[^0-9.]/g, '')) || 0.05;
   try {
-    const r = await fetch(`${NETWORK.lcd}/cosmos/base/node/v1beta1/config`);
+    const r = await lcdGet(`${NETWORK.lcd}/cosmos/base/node/v1beta1/config`);
     if (r.ok) {
       const d = await r.json();
       const v = parseFloat(String(d.minimum_gas_price || '').replace(/[a-z/]+/gi, ''));
@@ -461,9 +461,48 @@ function mapError(code, rawLog) {
 // LCD / RPC
 // ============================================================
 async function fetchAPI(path) {
-  const res = await fetch(`${NETWORK.lcd}${path}`);
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+  // 🟢 带超时：移动端经 LCD 查询偶发挂起（连接不返回也不报错），会导致上层
+  //    waitForTx / loadSanguoCards 永久 pending → UI 一直「处理中…」卡死。
+  //    这里用 AbortController 强制 15s 上限，超时即抛错，由上层重试/兜底，
+  //    绝不无限等待（这是「点升星卡在处理中、不能升星」的根因之一）。
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(`${NETWORK.lcd}${path}`, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 🟢 带超时的 LCD POST（广播交易用）。移动端 LCD 偶发挂起，未带超时会让签名后
+//    的广播步骤永久 pending → 一直「处理中…」。统一用这个助手，15s 必返回或报错。
+async function lcdPost(url, bodyObj, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyObj),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 🟢 带超时的 LCD GET（查询用，返回 Response 对象）。同上，避免移动端查询挂起
+//    导致 verifySeamless / syncFromChain / 取账户 等步骤永久 pending。
+async function lcdGet(url, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 查询任意合约（返回反序列化后的 JSON） */
@@ -540,7 +579,7 @@ async function getBlockTime() {
 async function fetchChainId() {
   if (state.chainId) return state.chainId;
   try {
-    const r = await fetch(`${NETWORK.rpc}/status`).then((x) => x.json());
+    const r = await lcdGet(`${NETWORK.rpc}/status`).then((x) => x.json());
     state.chainId = r.result?.node_info?.network || '';
   } catch (e) {}
   if (!state.chainId) {
@@ -576,11 +615,7 @@ async function simulateGas(messages, memo, accountNumber, sequence, wallet) {
     authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
     signatures: [new Uint8Array(64)],
   });
-  const res = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/simulate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx_bytes: toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish()) }),
-  });
+  const res = await lcdPost(`${NETWORK.lcd}/cosmos/tx/v1beta1/simulate`, { tx_bytes: toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish()) });
   if (!res.ok) throw new Error(`simulate HTTP ${res.status}`);
   const d = await res.json();
   const gas = d.gas_info?.gas_used || d.gasUsed;
@@ -724,7 +759,7 @@ async function sendTx(messages, memo = '', gasLimitOpt) {
   const senderAddr = sender.address;
 
   // 3. account + sequence（老板旧版 buildCommon）
-  const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${senderAddr}`);
+  const acctRes = await lcdGet(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${senderAddr}`);
   if (!acctRes.ok) throw new Error(`获取账户失败 HTTP ${acctRes.status}`);
   const acctData = await acctRes.json();
   const acct = acctData.account?.base_account || acctData.account;
@@ -790,11 +825,7 @@ async function sendTx(messages, memo = '', gasLimitOpt) {
   });
   const base64Tx = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
 
-  const bc = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx_bytes: base64Tx, mode: 'BROADCAST_MODE_SYNC' }),
-  }).then((r) => r.json());
+  const bc = await lcdPost(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, { tx_bytes: base64Tx, mode: 'BROADCAST_MODE_SYNC' }).then((r) => r.json());
 
   // 11. 检查结果
   const tx = bc.tx_response || bc;

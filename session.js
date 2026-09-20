@@ -328,7 +328,7 @@ function waitForCosmJS(timeoutMs = 8000) {
 /** 会话账户在链上的原生 PAXI 余额（upaxi 字符串） */
 Session.getSessionBalance = async function () {
   if (!state.sessAddr) return '0';
-  const r = await fetch(`${NETWORK.lcd}/cosmos/bank/v1beta1/balances/${state.sessAddr}`);
+  const r = await lcdGet(`${NETWORK.lcd}/cosmos/bank/v1beta1/balances/${state.sessAddr}`);
   if (!r.ok) throw new Error(`查询会话余额失败 HTTP ${r.status}`);
   const d = await r.json();
   const c = (d.balances || []).find((x) => x.denom === NETWORK.denom);
@@ -350,7 +350,7 @@ Session.getFeegrant = async function (force) {
 
   let data;
   try {
-    const r = await fetch(`${NETWORK.lcd}/cosmos/feegrant/v1beta1/allowance/${granter}/${state.sessAddr}`);
+    const r = await lcdGet(`${NETWORK.lcd}/cosmos/feegrant/v1beta1/allowance/${granter}/${state.sessAddr}`);
     if (r.ok) {
       const d = await r.json();
       const a = d.allowance;
@@ -589,7 +589,7 @@ Session._sendTxWithSessionCore = async function(messages, memo = '', gasLimitOpt
   }
 
   // 2. 取会话账户 accNum/seq（LCD REST，不走 RPC）
-  const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${state.sessAddr}`);
+  const acctRes = await lcdGet(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${state.sessAddr}`);
   if (!acctRes.ok) throw new Error(`获取会话账户失败 HTTP ${acctRes.status}`);
   const acctData = await acctRes.json();
   const acct = acctData.account?.base_account || acctData.account;
@@ -698,11 +698,8 @@ Session._sendTxWithSessionCore = async function(messages, memo = '', gasLimitOpt
   const txBase64 = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
 
   // 6. LCD REST 广播（BROADCAST_MODE_SYNC：CheckTx 通过即返回，上链确认由 waitForTx 轮询）
-  const res = await fetch(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx_bytes: txBase64, mode: 'BROADCAST_MODE_SYNC' }),
-  });
+  //    🟢 改用带超时的 lcdPost（移动端 LCD 偶发挂起会让广播永久 pending → 一直「处理中…」）
+  const res = await lcdPost(`${NETWORK.lcd}/cosmos/tx/v1beta1/txs`, { tx_bytes: txBase64, mode: 'BROADCAST_MODE_SYNC' });
   const bodyText = await res.text().catch(() => '');
   if (!res.ok) throw new Error(`广播失败 HTTP ${res.status}：${bodyText.slice(0, 300)}`);
   let txResp;

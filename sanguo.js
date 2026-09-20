@@ -1510,35 +1510,123 @@
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
   }
+  // 🟢 养成预检（2026-09-20）：与老版 paxi-card-game 对齐。
+  //    此前升星/升级/分解无任何前端预检：5★ 满星卡照样发交易、余额不够照样发交易，
+  //    全部被合约拒绝 → 白烧 gas（链上实测：两笔 sanguo_star_up 报
+  //    "Card already at maximum star"，每笔白扣手续费）。
+  //    数值必须与合约一致：
+  //    · src/sanguo/state.rs::upgrade_fees = [50000,150000,400000,1000000]（TKCC，50% 销毁）
+  //    · 升星碎片路径 = STAR_UP_FRAGMENT_COST[稀有度] → [50,100,200,500]（按稀有度，与星级无关，与升级碎片同表）
+  //    · 升级每级碎片 = 同表 50/100/200/500（按稀有度）
+  //    · 分解返还 = 5/10/20/50（按稀有度）
+  const STAR_UP_FEES = [50000, 150000, 400000, 1000000]; // 升星 TKCC 费用（整 TKCC，×1e6=raw），与合约 upgrade_fees/1e6 一致
+  const UPGRADE_FRAG_PER_LEVEL = { common: 50, rare: 100, epic: 200, legend: 500 }; // 升级每级碎片（按稀有度）
+  const DECOMPOSE_FRAG_BACK = { common: 5, rare: 10, epic: 20, legend: 50 };       // 分解返还碎片（按稀有度）
+  // 升星「碎片路径」消耗：合约 STAR_UP_FRAGMENT_COST[稀有度] = [50,100,200,500]，与升级同表、按稀有度、与星级无关
+  const STAR_UP_FRAG_COST = { common: 50, rare: 100, epic: 200, legend: 500 };
+
+  // 查合约内 TKCC 余额（raw）。查询失败返回 null（调用方决定是否放行）。
+  async function sgInContractTkcc() {
+    try {
+      const b = await queryContract({ balance: { address: state.wallet.address, token: CONTRACTS.tkcc } });
+      return BigInt(b.amount || '0');
+    } catch (e) { return null; }
+  }
+  // 查某稀有度碎片（以链上为准，顺带刷新缓存；失败退回缓存值）
+  async function sgFragOf(rarity) {
+    try {
+      const f = await queryContract({ sanguo_fragments: { address: state.wallet.address } });
+      if (f && f[rarity] != null) { sgFrags[rarity] = Number(f[rarity]) || 0; return sgFrags[rarity]; }
+    } catch (e) {}
+    return sgFrags[rarity] || 0;
+  }
+
   async function doStarUp(cardId, useFragments) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    const star = card.star || 1;
+    if (star >= 5) { showToast('⭐ 该卡已满星（5★），无法继续升星', 'error'); return; }
+    const fee = STAR_UP_FEES[star - 1];
+    if (!useFragments) {
+      const bal = await sgInContractTkcc();
+      if (bal === null) { showToast('查询合约内余额失败，请稍后重试', 'error'); return; }
+      if (bal < BigInt(fee) * 1000000n) {
+        showToast(`合约内 TKCC 不足：${star}★→${star + 1}★ 需要 ${fee.toLocaleString()} TKCC，当前 ${Math.floor(Number(bal) / 1e6).toLocaleString()} TKCC，请先在「钱包」充值`, 'error');
+        return;
+      }
+      const half = fee / 2;
+      if (!confirm(`升星 ${star}★ → ${star + 1}★\n\n费用：${fee.toLocaleString()} TKCC（从合约内余额扣）\n其中销毁 ${half.toLocaleString()} + 资金池 ${half.toLocaleString()}\n\n确定 = 升星，取消 = 中止`)) return;
+    } else {
+      const fragNeed = STAR_UP_FRAG_COST[card.rarity] || 50; // 合约按稀有度固定 50/100/200/500，与星级无关
+      const have = await sgFragOf(card.rarity);
+      if (have < fragNeed) {
+        showToast(`碎片不足：碎片升星需要 ${fragNeed} 个${rarityLabel(card.rarity)}碎片，当前 ${have} 个（碎片升星不花 TKCC）`, 'error');
+        return;
+      }
+      if (!confirm(`碎片升星 ${star}★ → ${star + 1}★\n\n消耗 ${fragNeed} 个${rarityLabel(card.rarity)}碎片（不花 TKCC、不销毁）\n当前拥有 ${have} 个\n\n确定 = 升星，取消 = 中止`)) return;
+    }
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoStarUp', { card_id: cardId, use_fragments: useFragments }, { action: 'star_up', spend: 0 });
       showToast(t('ok_short'), 'success');
-      renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
-    finally { hideBusy(); }
+    finally {
+      hideBusy();
+      // 🟢 无论成功/失败都从链上重拉一次卡牌与碎片再渲染：
+      //    避免「链上已成功、但本地缓存没刷新」让玩家以为没升星/没升级；
+      //    即便本次超时误报失败，只要链上真成功了，这里也会显示真实状态。
+      try { await loadSanguoCards(); } catch (_) {}
+      renderSanguoTab();
+    }
   }
   async function doUpgrade(cardId) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    const lv = card.level || 0;
+    if (lv >= 10) { showToast('💠 该卡已满级（Lv10），无法继续升级', 'error'); return; }
+    const perLv = UPGRADE_FRAG_PER_LEVEL[card.rarity] || 50;
+    const have = await sgFragOf(card.rarity);
+    if (have < perLv) {
+      showToast(`碎片不足：升级 Lv${lv}→Lv${lv + 1} 需要 ${perLv} 个${rarityLabel(card.rarity)}碎片，当前 ${have} 个`, 'error');
+      return;
+    }
+    if (!confirm(`升级 Lv${lv} → Lv${lv + 1}\n\n消耗 ${perLv} 个${rarityLabel(card.rarity)}碎片\n收益：攻击 +3 · 防御 +2（战力 +5）\n当前拥有 ${have} 个\n\n确定 = 升级，取消 = 中止`)) return;
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoUpgrade', { card_id: cardId }, { action: 'upgrade', spend: 0 });
       showToast(t('ok_short'), 'success');
-      renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
-    finally { hideBusy(); }
+    finally {
+      hideBusy();
+      // 🟢 无论成功/失败都从链上重拉一次卡牌与碎片再渲染：
+      //    避免「链上已成功、但本地缓存没刷新」让玩家以为没升星/没升级；
+      //    即便本次超时误报失败，只要链上真成功了，这里也会显示真实状态。
+      try { await loadSanguoCards(); } catch (_) {}
+      renderSanguoTab();
+    }
   }
   async function doDecompose(cardId) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    const back = DECOMPOSE_FRAG_BACK[card.rarity] || 5;
+    // 分解是销毁性操作：老版同款确认框，写清「不退还已投入」避免养成后白烧
+    if (!confirm(`⚠️ 分解后该卡将永久消失！\n\n「${card.name}」${card.star || 1}★ Lv${card.level || 0}\n仅返还 ${back} 个${rarityLabel(card.rarity)}碎片\n（不退还已投入的星级/等级/费用，养成后分解=白烧钱）\n\n确定 = 分解，取消 = 保留`)) return;
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoDecompose', { card_id: cardId }, { action: 'decompose', spend: 0 });
       showToast(t('ok_short'), 'success');
-      renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
-    finally { hideBusy(); }
+    finally {
+      hideBusy();
+      // 🟢 无论成功/失败都从链上重拉一次卡牌与碎片再渲染：
+      //    避免「链上已成功、但本地缓存没刷新」让玩家以为没升星/没升级；
+      //    即便本次超时误报失败，只要链上真成功了，这里也会显示真实状态。
+      try { await loadSanguoCards(); } catch (_) {}
+      renderSanguoTab();
+    }
   }
   async function doCraft(rarity) {
     rarity = rarity || 'common';
@@ -1554,9 +1642,15 @@
     try {
       await sanguoExec('SanguoCraft', { rarity }, { action: 'craft', spend: 0 });
       showToast(t('ok_short'), 'success');
-      renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
-    finally { hideBusy(); }
+    finally {
+      hideBusy();
+      // 🟢 无论成功/失败都从链上重拉一次卡牌与碎片再渲染：
+      //    避免「链上已成功、但本地缓存没刷新」让玩家以为没升星/没升级；
+      //    即便本次超时误报失败，只要链上真成功了，这里也会显示真实状态。
+      try { await loadSanguoCards(); } catch (_) {}
+      renderSanguoTab();
+    }
   }
 
   // ============================================================
