@@ -1201,19 +1201,13 @@
     const cls = rarityClass(c.rarity);
     const cid = esc(c.card_id);
     const lvTxt = (c.star > 1 || c.level > 0) ? `<div class="sg-card-lv">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
-    // 🟢 老版风格：卡牌底部内联「升级 / 升星 / 分解」按钮，点卡身仍可看属性详情；
-    //    按钮区 stopPropagation，避免误开弹窗。养成不再被迫走弹窗。
+    // 🟢「我的卡牌」只展示卡牌参数，不放养成按钮（升级/升星/分解统一到「养成」页）。
     return `<div class="sg-card ${cls}${sgJustDrew ? ' new-card' : ''}" onclick="openCardDetailFromId('${cid}')">
       ${lvTxt}
       <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
       <div class="sg-card-foot">
         <div class="nm">${esc(c.name)}</div>
         <div class="rr">${rarityLabel(c.rarity)} · ${t('power_label')} ${power(c)}</div>
-      </div>
-      <div class="sg-card-acts" onclick="event.stopPropagation()">
-        <button class="sg-act sg-act-up" onclick="sgQuickUpgrade('${cid}')">${t('upgrade_btn')}</button>
-        <button class="sg-act sg-act-star" onclick="sgQuickStarUp('${cid}')">${t('starup_btn')}</button>
-        <button class="sg-act sg-act-dec" onclick="sgQuickDecompose('${cid}')">${t('decompose_btn')}</button>
       </div>
     </div>`;
   }
@@ -1475,10 +1469,16 @@
     } else {
       grid.innerHTML = userCards.map((c) => {
         const col = rarityColor(c.rarity);
-        return `<div style="border:2px solid ${col};border-radius:10px;overflow:hidden;background:#0d1322;padding:4px">
-          <div style="font-size:11px;font-weight:700;color:#fff">${esc(c.name)}</div>
-          <div style="font-size:9px;color:${col}">${rarityLabel(c.rarity)} ★${c.star||1} Lv${c.level||0} · ${power(c)}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px">
+        const img = getCardImage(c.name);
+        // 🟢 养成页：卡牌图（小尺寸）+ 下方「升星 / 升星·F / 升级 / 分解」按钮。
+        //    渲染结构变化，按钮动作仍走原 doStarUp / doUpgrade / doDecompose，逻辑零改动。
+        return `<div class="sg-cult-card" style="border-color:${col}">
+          <div class="sg-cult-img"><img src="${img}" onerror="this.style.display='none'"></div>
+          <div class="sg-cult-info">
+            <div class="nm">${esc(c.name)}</div>
+            <div class="rr" style="color:${col}">${rarityLabel(c.rarity)} ★${c.star||1} Lv${c.level||0} · ${power(c)}</div>
+          </div>
+          <div class="sg-cult-acts">
             <button class="btn btn-sm btn-ghost" data-act="star_tk" data-cid="${c.card_id}">${t('starup_btn')}</button>
             <button class="btn btn-sm btn-ghost" data-act="star_frag" data-cid="${c.card_id}">${t('starup_btn')}·F</button>
             <button class="btn btn-sm btn-ghost" data-act="upgrade" data-cid="${c.card_id}">${t('upgrade_btn')}</button>
@@ -2044,8 +2044,9 @@
     const dStar = $('detailStar'); if (dStar) dStar.textContent = '★' + (card.star || 1) + (card.level ? ' Lv' + card.level : '');
     const dDesc = $('detailDesc');
     if (dDesc) dDesc.textContent = `${card.identity || ''}${card.title ? '「' + card.title + '」' : ''}　攻击 ${card.attack != null ? card.attack : '?'} · 防御 ${card.defense != null ? card.defense : '?'} · 战力 ${power(card)}`;
+    // 🟢「我的卡牌」弹窗只展示参数：养成按钮统一放到「养成」页，这里始终隐藏。
     const actions = document.querySelector('#cardDetailModal .star-actions');
-    if (actions) actions.style.display = owned ? '' : 'none';
+    if (actions) actions.style.display = 'none';
     const modal = $('cardDetailModal');
     if (modal) modal.classList.add('active');
   }

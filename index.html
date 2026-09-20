@@ -375,7 +375,7 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 #sgCardGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:6px; }
 .sg-card {
   position:relative; border:2px solid #555; border-radius:10px; overflow:hidden;
-  background:#0d1322; aspect-ratio:auto; height: calc(var(--sg-card-h) + 32px);
+  background:#0d1322; aspect-ratio:auto; height: var(--sg-card-h);
   display:flex; flex-direction:column; cursor:pointer; transition: filter .2s;
 }
 .sg-card:hover { filter: brightness(1.12); z-index:3; }
@@ -404,24 +404,21 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   position:absolute; top:3px; right:3px; background:rgba(0,0,0,.65); color:#ffd54f;
   padding:1px 5px; border-radius:4px; font-size:10px; font-weight:700; z-index:2;
 }
-/* 老版风格：卡牌底部内联操作按钮（升级/升星/分解）——点卡身看详情，点按钮直接养成 */
-.sg-card .sg-card-acts {
-  flex:0 0 30px; display:flex; gap:4px; align-items:stretch;
-  padding:3px 4px; background:linear-gradient(180deg, rgba(58,44,30,.92), rgba(26,18,24,.96));
-  border-top:1px dashed rgba(200,160,100,.35); cursor:default;
+/* 养成页卡牌格：小卡图 + 参数 + 下方四个养成按钮（与「我的卡牌」区分开） */
+.sg-cult-card {
+  border:2px solid #555; border-radius:10px; overflow:hidden; background:#0d1322;
+  padding:5px; display:flex; flex-direction:column; gap:4px;
 }
-.sg-card .sg-act {
-  flex:1; min-width:0; border:1px solid rgba(200,160,100,.5); border-radius:6px;
-  background:linear-gradient(180deg,#4a3820,#2c2010); color:#ffd700;
-  font-size:11px; font-weight:700; line-height:1; padding:0; cursor:pointer;
-  font-family:inherit; transition:filter .15s; white-space:nowrap; overflow:hidden;
+.sg-cult-card .sg-cult-img {
+  width:100%; aspect-ratio:3/4; display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(ellipse at 50% 80%, rgba(60,40,20,.25), transparent 70%);
+  border-radius:6px; overflow:hidden;
 }
-.sg-card .sg-act:active { filter:brightness(1.35); }
-.sg-card .sg-act-star { color:#ffe9a8; }
-.sg-card .sg-act-dec {
-  color:#ff9e9e; border-color:rgba(255,120,120,.45);
-  background:linear-gradient(180deg,#4a2020,#2c1010);
-}
+.sg-cult-card .sg-cult-img img { width:100%; height:100%; object-fit:cover; }
+.sg-cult-card .sg-cult-info .nm { font-size:11px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sg-cult-card .sg-cult-info .rr { font-size:9px; }
+.sg-cult-card .sg-cult-acts { display:flex; flex-wrap:wrap; gap:3px; }
+.sg-cult-card .sg-cult-acts .btn { flex:1 1 calc(50% - 3px); min-width:0; padding:3px 2px; font-size:10px; line-height:1.1; }
 .rarity-legend { border-color:#ffd700 !important; }
 .rarity-epic   { border-color:#ab47bc !important; }
 .rarity-rare   { border-color:#4fc3f7 !important; }
@@ -627,8 +624,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
      第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
      加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
      该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
-<script src="paxi-cosmjs.umd.js?v=20260920-10" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
-<script src="compat.js?v=20260920-10"></script>
+<script src="paxi-cosmjs.umd.js?v=20260920-11" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260920-11"></script>
 <script>
   // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
   if (typeof window.PaxiCosmJS === 'undefined') {
@@ -668,16 +665,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260920-10';</script>
-<script src="shared.js?v=20260920-10"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260920-10"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260920-10"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260920-10"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260920-11';</script>
+<script src="shared.js?v=20260920-11"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260920-11"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260920-11"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260920-11"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260920-10"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260920-10"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260920-11"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260920-11"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 
 <!-- 🟢 三国·卡牌：连接钱包后同步统计（仅当三国页已打开时刷新）；底部 Tab 高亮同步。
