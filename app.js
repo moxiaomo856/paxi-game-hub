@@ -8,6 +8,7 @@
 
 let currentTab = 'home';
 let ctx = null;          // 当前游戏的上下文
+let gameClaimBal = '0';  // 游戏页「领取奖励」卡片的合约内余额（下注用的是 TKCC）
 
 // ============================================================
 // 日志
@@ -96,6 +97,13 @@ const HUB_I18N = {
     bet_title: '💵 下注', bet_min: '最小', bet_max: '最大', bet_x2: '翻倍', bet_half: '减半',
     btn_play: '开始游戏', btn_submitting: '提交中…',
     limit_single: '单局限额', limit_daily: '每日上限',
+    // —— 游戏页「领取奖励」（大厅游戏赢的币即时进合约内部余额，需在此提现回钱包）——
+    claim_title: '🎁 领取奖励',
+    claim_desc: '本游戏赢的币会先记在<b>合约内部余额</b>，不会自动到钱包。点下方按钮即可全部取回钱包（也可部分提现）。',
+    claim_btn: '全部取回',
+    claim_empty: '合约内暂无可领取的余额',
+    claim_loading: '查询中…',
+    claim_ok: '领取成功',
     // —— 提示 ——
     toast_open_in_paxihub: '请在 PaxiHub 钱包内打开',
     toast_connected: '钱包已连接',
@@ -182,6 +190,12 @@ const HUB_I18N = {
     bet_title: '💵 Bet', bet_min: 'Min', bet_max: 'Max', bet_x2: '×2', bet_half: '½',
     btn_play: 'Play', btn_submitting: 'Submitting…',
     limit_single: 'Bet Range', limit_daily: 'Daily Limit',
+    claim_title: '🎁 Claim Reward',
+    claim_desc: 'Winnings are credited to your <b>in-contract balance</b>, not your wallet. Tap below to withdraw everything back to your wallet.',
+    claim_btn: 'Claim All',
+    claim_empty: 'No in-contract balance to claim',
+    claim_loading: 'Checking…',
+    claim_ok: 'Claimed',
     // —— toasts ——
     toast_open_in_paxihub: 'Please open inside the PaxiHub wallet',
     toast_connected: 'Wallet connected',
@@ -364,12 +378,27 @@ function switchTab(tab) {
 }
 
 // ============================================================
+// 大厅展示名单与顺序（2026-09-20 精简：只留 4 个游戏）
+//   顺序：三国 → 骰宝 → 猜数字 → 疯狂骰子（三国排第一）
+//   未列入的 id 一律不显示：轮盘 roulette / roulette_vip、卡牌 card_rank / card_vs_dealer，
+//   以及链上没注册 game_id 的变体（如 guess_elite）——它们点进去必然报错。
+//   想恢复某个游戏：把它的 id 加进 HUB_VISIBLE_GAMES 即可，顺序即数组顺序。
+// ============================================================
+const HUB_VISIBLE_GAMES = ['sanguo', 'dice', 'guess', 'crazydice'];
+function hubVisibleGames() {
+  const list = Array.isArray(window.GAMES) ? window.GAMES : [];
+  return HUB_VISIBLE_GAMES
+    .map((id) => list.find((g) => g && g.meta && g.meta.id === id))
+    .filter(Boolean);
+}
+
+// ============================================================
 // 大厅
 // ============================================================
 async function renderHome() {
   const main = $('main');  // 合约地址还没配 —— 仍然显示卡片（禁用），顶部加 banner 引导
   if (!hasGameContract()) {
-    const disabledCards = window.GAMES.map((g) => `
+    const disabledCards = hubVisibleGames().map((g) => `
       <div class="game-card disabled" title="${hubT('not_deployed')}">
         <div class="game-icon">${g.meta.icon || '🎮'}</div>
         <div class="game-name">${typeof g.meta.name === 'object' ? g.meta.name[hubLang()] : g.meta.name}</div>
@@ -406,7 +435,7 @@ async function renderHome() {
     sessHtml = `<div class="hint">${hubT('hint_register')}</div>`;
   }
 
-  const cards = window.GAMES.map((g) => {
+  const cards = hubVisibleGames().map((g) => {
     const entry = state.games.find((x) => x.game_id === g.meta.id);
     const off = entry && entry.enabled === false;
     const isSanguo = g.meta.type === 'sanguo';
@@ -1005,6 +1034,13 @@ async function openGame(gameId) {
         <div class="bal-item"><div class="bal-val small">${fromRawUnits(lim.limit.max_daily_bet)} / ${lim.limit.max_daily_rounds}${hubLang() === 'en' ? ' rounds' : '局'}</div><div class="bal-lab">${hubT('limit_daily')}</div></div>
       </div>
 
+      <div class="card" id="gameClaimCard" style="display:none">
+        <div class="card-title">${hubT('claim_title')}</div>
+        <div class="kv"><span class="k">${hubT('incontract_bal')}</span><span class="v" id="gcBal">${hubT('claim_loading')}</span></div>
+        <div class="desc" style="margin-top:6px">${hubT('claim_desc')}</div>
+        <button class="btn btn-gold" id="btnGameClaim" style="margin-top:8px;width:100%">${hubT('claim_btn')}</button>
+      </div>
+
       <div class="card">
         <div class="card-title">${hubT('result_title')}</div>
         <div class="result-stage" id="stage"><span class="placeholder-txt">${hubT('result_placeholder')}</span></div>
@@ -1039,6 +1075,9 @@ async function openGame(gameId) {
       };
     });
     $('btnPlay').onclick = doPlay;
+    const gcBtn = $('btnGameClaim');
+    if (gcBtn) gcBtn.onclick = claimGameReward;
+    refreshGameClaim();   // 异步拉合约内余额，有余额才显示「领取奖励」卡片
     log(hubT('ready_log')(gname, engineKey), 'ok');
   } catch (e) {
     log(hubT('load_fail_log') + e.message, 'err');
@@ -1055,7 +1094,7 @@ async function quickRegister() {
   try {
     await Session.register();
     showToast(hubT('sess_register_ok2'), 'success');
-    openGame(ctx ? ctx.id : window.GAMES[0].meta.id);
+    openGame(ctx ? ctx.id : (hubVisibleGames()[0] || window.GAMES[0]).meta.id); // 默认进第一个可见游戏（三国）
   } catch (e) {
     showToast(e.message, 'error');
   } finally {
@@ -1158,6 +1197,89 @@ async function doPlay() {
   } finally {
     btn.disabled = false;
     btn.textContent = hubT('btn_play');
+    refreshGameClaim();   // 赢局派彩即时进合约内部余额，刷新可领取额
+  }
+}
+
+// ============================================================
+// 游戏页「领取奖励」（大厅通用游戏：猜数字 / 骰宝 / 疯狂骰子）
+// ------------------------------------------------------------
+// 合约行为：这些游戏没有 pending/claim 机制，赢局的 payout 会**即时**加进合约内部
+// BALANCES（从 HOUSE_BANKROLL 扣 profit），所以要拿回钱包必须发 Withdraw。
+// 这里补一个「领取奖励」卡片 = 一键 Withdraw 全部合约内余额，避免玩家赢完找不到入口。
+// ============================================================
+
+/** 下注用的代币 = 配置的 TKCC；没配 TKCC 时退回钱包页当前选中代币 */
+function gameClaimToken() {
+  const list = state.tokens && state.tokens.length ? state.tokens : [NATIVE_TOKEN];
+  if (CONTRACTS.tkcc) {
+    const t = list.find((x) => x.type === 'cw20' && x.contract === CONTRACTS.tkcc);
+    if (t) return t;
+    return { key: 'cw20:' + CONTRACTS.tkcc, type: 'cw20', contract: CONTRACTS.tkcc, symbol: 'TKCC', decimals: 6, name: 'TKCC' };
+  }
+  return findToken(list, state.selToken);
+}
+
+/** 拉取合约内余额并刷新「领取奖励」卡片（无余额则整卡隐藏） */
+async function refreshGameClaim() {
+  const card = $('gameClaimCard');
+  if (!card || !state.connected || !hasGameContract()) return;
+  const t = gameClaimToken();
+  const balEl = $('gcBal');
+  const btn = $('btnGameClaim');
+  if (balEl) balEl.textContent = hubT('claim_loading');
+  try {
+    const bal = await queryGameBalance(t);
+    gameClaimBal = bal;
+    if (balEl) balEl.textContent = `${bal} ${esc(t.symbol)}`;
+    const zero = !bal || Number(bal) <= 0;
+    if (btn) {
+      btn.disabled = zero;
+      btn.textContent = zero ? hubT('claim_empty') : hubT('claim_btn');
+    }
+    card.style.display = '';   // 常驻显示：余额为 0 时按钮置灰提示，避免玩家找不到入口
+  } catch (e) {
+    console.warn('查询合约内余额失败', e && e.message);
+    if (balEl) balEl.textContent = '—';
+    card.style.display = '';
+  }
+}
+
+/** 一键把合约内余额全部提现回钱包（等价于「领取奖励」） */
+async function claimGameReward() {
+  if (!state.connected) return showToast(hubT('connect_wallet_first'), 'error');
+  const t = gameClaimToken();
+  const btn = $('btnGameClaim');
+  let amt = gameClaimBal;
+  try {
+    amt = await queryGameBalance(t);   // 以链上最新为准，别用缓存值
+  } catch (e) {
+    return showToast(hubT('claim_loading') + '：' + (e.message || e), 'error');
+  }
+  gameClaimBal = amt;
+  if (!amt || Number(amt) <= 0) return showToast(hubT('claim_empty'), 'error');
+
+  const raw = toRawUnits(amt, t.decimals);
+  if (BigInt(raw) <= 0n) return showToast(hubT('claim_empty'), 'error');
+
+  if (btn) { btn.disabled = true; btn.textContent = hubT('processing'); }
+  showBusy(hubT('claim_btn') + '…');
+  try {
+    const hash = await execContract({
+      withdraw: { token: t.type === 'native' ? null : t.contract, amount: raw },
+    });
+    await waitForTx(hash);
+    log(`${hubT('claim_ok')} ${amt} ${esc(t.symbol)}`, 'ok');
+    showToast(hubT('claim_ok'), 'success');
+    await refreshBalances();
+  } catch (e) {
+    const msg = e.message || String(e);
+    log('领取失败：' + msg, 'err');
+    showToast(msg, 'error');
+  } finally {
+    hideBusy();
+    await refreshGameClaim();
+    if (btn) btn.disabled = false;
   }
 }
 

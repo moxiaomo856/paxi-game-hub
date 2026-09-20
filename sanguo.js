@@ -132,6 +132,7 @@
       'ai_diff': '难度',
       'ai_fee': '挑战费',
       'ai_reward': '胜率奖励',
+      'ai_pending_hint': '你已赢 {n} 场，奖励需点击下方按钮领取后才会到钱包。',
       'ai_stats': '今日已战',
       'cult_title': '养成',
       'cult_desc': '升星 / 分解 / 升级 / 合成 / 出战顺序',
@@ -145,8 +146,15 @@
       'starup_btn': '升星',
       'decompose_btn': '分解',
       'upgrade_btn': '升级',
+      'decompose_confirm': '确定要分解这张卡牌吗？\n分解后卡牌消失、获得对应碎片，不可恢复！',
       'select_rarity': '选择稀有度',
       'craft_btn': '合成',
+      'craft_desc': '消耗对应稀有度碎片，随机获得一张该稀有度卡牌。',
+      'craft_common': '🟤 合成普通（{cost} 碎片）',
+      'craft_rare': '🔵 合成稀有（{cost} 碎片）',
+      'craft_epic': '🟣 合成史诗（{cost} 碎片）',
+      'craft_legend': '🟡 合成传说（{cost} 碎片）',
+      'craft_insufficient': '碎片不足：需要 {need}，当前 {have}',
       'select_card_first': '请先选择卡牌',
       'prop_title': '卡牌提案',
       'prop_desc': '提交新武将卡，社区投票通过后上链',
@@ -273,6 +281,7 @@
       'ai_diff': 'Difficulty',
       'ai_fee': 'Entry fee',
       'ai_reward': 'Win reward',
+      'ai_pending_hint': 'You won {n} battles — tap below to claim to your wallet.',
       'ai_stats': 'Battles today',
       'cult_title': 'Cultivate',
       'cult_desc': 'Star up / Decompose / Upgrade / Craft / Battle order',
@@ -286,8 +295,15 @@
       'starup_btn': 'Star up',
       'decompose_btn': 'Decompose',
       'upgrade_btn': 'Upgrade',
+      'decompose_confirm': 'Decompose this card?\nThe card will be converted into fragments. This cannot be undone!',
       'select_rarity': 'Select Rarity',
       'craft_btn': 'Craft',
+      'craft_desc': 'Spend fragments of a rarity to get a random card of that rarity.',
+      'craft_common': '🟤 Craft Common ({cost} frags)',
+      'craft_rare': '🔵 Craft Rare ({cost} frags)',
+      'craft_epic': '🟣 Craft Epic ({cost} frags)',
+      'craft_legend': '🟡 Craft Legend ({cost} frags)',
+      'craft_insufficient': 'Not enough fragments: need {need}, you have {have}',
       'select_card_first': 'Select a card first',
       'prop_title': 'Card Proposals',
       'prop_desc': 'Submit a new general card; on-chain after community vote',
@@ -536,6 +552,9 @@
   let sanguoPicked = [];     // 养成-出战顺序 / PVP / 混战 选中的 card_id 列表
   let sgPendingAction = null; // 'accept_pvp' | 'join_royale'（通用卡牌选择面板）
   let sgPendingId = null;     // 对应的 match_id / royale_id
+  // 碎片合成消耗（普通/稀有/史诗/传说）——必须与合约一致：src/sanguo/state.rs::CRAFT_COST = [30,60,150,400]
+  const CRAFT_COST = { common: 30, rare: 60, epic: 150, legend: 400 };
+  let sgFrags = { common: 0, rare: 0, epic: 0, legend: 0 };  // 合成区用的四档碎片余额
 
   // 收入对账页仅对管理员钱包可见（管理员 = 部署者钱包）
   const SG_ADMIN = 'paxi1rdarmm997hqwfdgl9wvnpffe28zmex3kfyg7xd';
@@ -1182,12 +1201,19 @@
     const cls = rarityClass(c.rarity);
     const cid = esc(c.card_id);
     const lvTxt = (c.star > 1 || c.level > 0) ? `<div class="sg-card-lv">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
+    // 🟢 老版风格：卡牌底部内联「升级 / 升星 / 分解」按钮，点卡身仍可看属性详情；
+    //    按钮区 stopPropagation，避免误开弹窗。养成不再被迫走弹窗。
     return `<div class="sg-card ${cls}${sgJustDrew ? ' new-card' : ''}" onclick="openCardDetailFromId('${cid}')">
       ${lvTxt}
       <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
       <div class="sg-card-foot">
         <div class="nm">${esc(c.name)}</div>
         <div class="rr">${rarityLabel(c.rarity)} · ${t('power_label')} ${power(c)}</div>
+      </div>
+      <div class="sg-card-acts" onclick="event.stopPropagation()">
+        <button class="sg-act sg-act-up" onclick="sgQuickUpgrade('${cid}')">${t('upgrade_btn')}</button>
+        <button class="sg-act sg-act-star" onclick="sgQuickStarUp('${cid}')">${t('starup_btn')}</button>
+        <button class="sg-act sg-act-dec" onclick="sgQuickDecompose('${cid}')">${t('decompose_btn')}</button>
       </div>
     </div>`;
   }
@@ -1238,6 +1264,11 @@
     const cardCount = userCards.length;
     const enoughCards = cardCount >= 3;
     body.innerHTML = `
+      <div class="card" id="sgAiPendingCard" style="display:none">
+        <div class="card-title">🎁 ${t('pending_reward')}（<span id="sgAiPendingTotal">0</span> TKCC）</div>
+        <div class="hint" id="sgAiPendingHint"></div>
+        <button class="btn btn-gold" id="sgAiClaimAll" style="margin-top:8px;width:100%">${t('claim_btn')}</button>
+      </div>
       <div class="card">
         <div class="card-title">⚔️ ${t('ai_title')}</div>
         <div class="desc">${t('ai_desc')}</div>
@@ -1291,6 +1322,21 @@
       sanguoRenderPicker('sgAiPick', 3);
     }
     $('sgAiGo').onclick = () => doAiBattle();
+
+    // 🟢 待领取横幅：赢局奖励先进合约 pending（sanguo_pending），必须点「领取」才真正转账。
+    //    原领取入口只在「我的卡」页，玩家在 AI 对战页看不到 → 这里补一个一键领取入口。
+    if (state.wallet) {
+      try {
+        const pend = await queryContract({ sanguo_pending: { address: state.wallet.address } });
+        const ids = (pend && pend.battle_ids) || [];
+        if (ids.length) {
+          $('sgAiPendingCard').style.display = '';
+          $('sgAiPendingTotal').textContent = fromRawUnits((pend && pend.total_rewards) || '0');
+          $('sgAiPendingHint').textContent = tf('ai_pending_hint', { n: ids.length });
+          $('sgAiClaimAll').onclick = () => doClaimAll(ids);
+        }
+      } catch (e) { /* 查询失败不阻断对战页 */ }
+    }
   }
 
   async function doAiBattle() {
@@ -1368,15 +1414,21 @@
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0" id="sgOrderPick"></div>
         <button class="btn btn-primary" id="sgSetOrder">${t('set_order_btn')}</button>
       </div>
-      <div class="card">
-        <div class="card-title">${t('select_rarity')} → ${t('craft_btn')}</div>
-        <select id="sgCraftRarity" class="input">
-          <option value="common">${t('rarity_common')}</option>
-          <option value="rare">${t('rarity_rare')}</option>
-          <option value="epic">${t('rarity_epic')}</option>
-          <option value="legend">${t('rarity_legend')}</option>
-        </select>
-        <button class="btn btn-gold" id="sgCraft" style="margin-top:8px;width:100%">${t('craft_btn')}</button>
+      <div class="card" id="sgCraftCard">
+        <div class="card-title">✨ ${t('craft_btn')}</div>
+        <div class="desc">${t('craft_desc')}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 10px;font-size:12px">
+          <span style="color:#b9a58f">🟤 ${t('rarity_common')} <b id="craftFragCommon">0</b></span>
+          <span style="color:#4a9eff">🔵 ${t('rarity_rare')} <b id="craftFragRare">0</b></span>
+          <span style="color:#b14aff">🟣 ${t('rarity_epic')} <b id="craftFragEpic">0</b></span>
+          <span style="color:#ffd700">🟡 ${t('rarity_legend')} <b id="craftFragLegend">0</b></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-secondary" data-craft="common">${tf('craft_common', { cost: CRAFT_COST.common })}</button>
+          <button class="btn btn-primary" data-craft="rare">${tf('craft_rare', { cost: CRAFT_COST.rare })}</button>
+          <button class="btn btn-gold" data-craft="epic">${tf('craft_epic', { cost: CRAFT_COST.epic })}</button>
+          <button class="btn btn-gold" data-craft="legend" style="background:linear-gradient(135deg,#ffd700,#ff8c00);color:#3a2400">${tf('craft_legend', { cost: CRAFT_COST.legend })}</button>
+        </div>
       </div>
       <div class="card">
         <div class="card-title">🃏 ${t('my_cards')}</div>
@@ -1390,6 +1442,14 @@
           $('sgFragE').textContent = f.epic; $('sgFragL').textContent = f.legend;
           const sum = (Number(f.common) || 0) + (Number(f.rare) || 0) + (Number(f.epic) || 0) + (Number(f.legend) || 0);
           sgFragCache = sum; sgSyncWallet();
+          // 合成区（老版样式）里的四档碎片余额同步刷新
+          sgFrags = {
+            common: Number(f.common) || 0, rare: Number(f.rare) || 0,
+            epic: Number(f.epic) || 0, legend: Number(f.legend) || 0,
+          };
+          const setF = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+          setF('craftFragCommon', sgFrags.common); setF('craftFragRare', sgFrags.rare);
+          setF('craftFragEpic', sgFrags.epic); setF('craftFragLegend', sgFrags.legend);
         }
       } catch (e) {}
     }
@@ -1405,7 +1465,10 @@
     }
     sanguoRenderPicker('sgOrderPick', 8);
     $('sgSetOrder').onclick = () => doSetBattleOrder();
-    $('sgCraft').onclick = () => doCraft();
+    // 🟢 老版样式：四档稀有度各自一个合成按钮，直接点对应稀有度即可（不再下拉选择）
+    document.querySelectorAll('#sgCraftCard button[data-craft]').forEach((b) => {
+      b.onclick = () => doCraft(b.dataset.craft);
+    });
     const grid = $('sgCultGrid');
     if (!userCards.length) {
       grid.innerHTML = `<div class="hint" style="grid-column:1/-1">${t('empty_cards')}</div>`;
@@ -1477,8 +1540,15 @@
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
   }
-  async function doCraft() {
-    const rarity = ($('sgCraftRarity') || {}).value || 'common';
+  async function doCraft(rarity) {
+    rarity = rarity || 'common';
+    // 前端先校验碎片（与合约 CRAFT_COST 一致），不够就直接拦下，不浪费一次签名
+    const cost = CRAFT_COST[rarity] || 0;
+    const have = (sgFrags && sgFrags[rarity]) || 0;
+    if (have < cost) {
+      showToast(tf('craft_insufficient', { need: cost, have }), 'error');
+      return;
+    }
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     showBusy(t('doing'));
     try {
@@ -1925,6 +1995,15 @@
     await doDecompose(cid); closeCardDetail();
   }
   window.detailDecompose = detailDecompose;
+
+  // ---- 老版风格：我的卡牌网格内联按钮（不经弹窗直接养成）----
+  // 分解是销毁性操作（卡没了换碎片），网格里按钮小、易误触，加一次确认。
+  window.sgQuickUpgrade = (cid) => doUpgrade(cid);
+  window.sgQuickStarUp = (cid) => doStarUp(cid, false);
+  window.sgQuickDecompose = (cid) => {
+    if (!confirm(t('decompose_confirm'))) return;
+    doDecompose(cid);
+  };
 
   // ---- 卡牌图鉴 ----
   async function openCodex() {
