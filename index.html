@@ -609,8 +609,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
      第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
      加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
      该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
-<script src="paxi-cosmjs.umd.js?v=20260920-2" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
-<script src="compat.js?v=20260920-2"></script>
+<script src="paxi-cosmjs.umd.js?v=20260920-4" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260920-4"></script>
 <script>
   // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
   if (typeof window.PaxiCosmJS === 'undefined') {
@@ -650,16 +650,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260920-2';</script>
-<script src="shared.js?v=20260920-2"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260920-2"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260920-2"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260920-2"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260920-4';</script>
+<script src="shared.js?v=20260920-4"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260920-4"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260920-4"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260920-4"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260920-2"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260920-2"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260920-4"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260920-4"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 
 <!-- 🟢 三国·卡牌：连接钱包后同步统计（仅当三国页已打开时刷新）；底部 Tab 高亮同步。

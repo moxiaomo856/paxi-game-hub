@@ -550,14 +550,14 @@ Session.ensureSeamless = async function () {
 //   会话私钥本地签 SignDoc，不调用 window.paxihub.paxi.signAndSendTransaction。
 // 为什么 gas 由主钱包付？
 //   StdFee.granter = 主钱包地址，链上 Feegrant ante handler 据此扣主钱包余额。
-Session.sendTxWithSession = async function(messages, memo = '') {
+Session.sendTxWithSession = async function(messages, memo = '', gasLimitOpt) {
   // 🟢 串行队列：会话账户只有一把 sequence 锁，连续两笔若都取同一 sequence 必冲突。
   //    用 Promise 链串行化（不再像旧版那样 .catch(()=>{}) 吞掉错误）。
   if (!Session._txQueue) Session._txQueue = Promise.resolve();
-  return Session._txQueue = Session._txQueue.then(() => Session._sendTxWithSessionCore(messages, memo));
+  return Session._txQueue = Session._txQueue.then(() => Session._sendTxWithSessionCore(messages, memo, gasLimitOpt));
 };
 
-Session._sendTxWithSessionCore = async function(messages, memo = '') {
+Session._sendTxWithSessionCore = async function(messages, memo = '', gasLimitOpt) {
   const CJ = window.CosmJSSigning;
   if (!CJ) throw new Error('CosmJS 未加载（无感签名需要 CosmJS）');
   const { DirectSecp256k1Wallet, SigningStargateClient, GasPrice } = CJ;
@@ -576,7 +576,17 @@ Session._sendTxWithSessionCore = async function(messages, memo = '') {
   //    mode='balance' ：授权无效但会话账户自己有 PAXI → 自己付（仍然免密）
   const v = await Session.verifySeamless();
   if (!v.ok) throw new Error(`无感通道不可用：${v.reason}`);
-  const plan = v.fee;
+  let plan = v.fee;
+
+  // 🟢 迁移等重操作可以带更高的 gas 上限（老合约迁移要批量铸造全部卡牌，
+  //    管理员钱包有 15 张 → 600k 默认上限会被撑爆报 out of gas）。
+  //    这里必须【连同手续费一起重算】：只改 gasLimit 而 fee.amount 仍按 600k 算的话，
+  //    链上会判 "insufficient fees"（手续费低于 gasLimit × 链下限 0.05）。
+  //    只换 fee plan，不动验签/付费方/granter 逻辑。
+  if (gasLimitOpt && Number(gasLimitOpt) > 0) {
+    plan = await computeSeamlessFee(Number(gasLimitOpt));
+    console.log(`[无感] 本次使用自定义 gas 上限=${plan.gasLimit}，手续费=${plan.amount}${plan.denom}`);
+  }
 
   // 2. 取会话账户 accNum/seq（LCD REST，不走 RPC）
   const acctRes = await fetch(`${NETWORK.lcd}/cosmos/auth/v1beta1/accounts/${state.sessAddr}`);

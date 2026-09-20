@@ -661,7 +661,7 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
 
   if (useSession) {
     try {
-      return await Session.sendTxWithSession(messages, memo);
+      return await Session.sendTxWithSession(messages, memo, opts.gasLimit);
     } catch (e) {
       const why = (e && e.message) || '未知原因';
       console.warn('[execAnyContract] 无感通道失败，自动 fallback 主钱包:', why);
@@ -681,12 +681,12 @@ async function execAnyContract(contractAddr, msg, funds = [], memo = '', opts = 
     execAnyContract._skipToasted = true;
     try { showToast(`本次未走无感通道（${seamlessReason}），改用钱包签名`, 'error'); } catch (_) {}
   }
-  return sendTx(messages, memo);
+  return sendTx(messages, memo, opts.gasLimit);
 }
 
 /** 执行游戏合约 */
-async function execContract(msg, funds = [], memo = '') {
-  return execAnyContract(CONTRACTS.game, msg, funds, memo);
+async function execContract(msg, funds = [], memo = '', opts = {}) {
+  return execAnyContract(CONTRACTS.game, msg, funds, memo, opts);
 }
 
 /**
@@ -713,7 +713,7 @@ async function approvePrc20(tokenContract, amount, spender) {
  * @param {string} memo    备注
  * @returns {Promise<string>} txhash
  */
-async function sendTx(messages, memo = '') {
+async function sendTx(messages, memo = '', gasLimitOpt) {
   // 1. chainId —— 🟢 改用 fetchChainId()（带 LCD 兜底 + 默认链 ID），
   //    不再直接 fetch(NETWORK.rpc + '/status')：RPC（26657 端口）在手机钱包浏览器常因
   //    CORS / 端口被墙而失败，会直接让主钱包通道也崩。
@@ -735,8 +735,10 @@ async function sendTx(messages, memo = '') {
   const txBody = PaxiCosmJS.TxBody.fromPartial({ messages, memo });
 
   // 5. Fee — 老板旧版固定值（30000 upaxi + 600000 gas）
+  //    🟢 gasLimit 可被调用方覆盖（迁移等重操作传更高上限，避免 600k 被撑爆）；
+  //       不传则维持 600k，其余玩法手续费不变（Cosmos 未用完 gas 会退还，实际只按 gasUsed 计费）。
   const gasPrice = 0.05;
-  const gasLimit = 600_000;
+  const gasLimit = Number(gasLimitOpt) || 600_000;
   const feeAmount = Math.ceil(gasLimit * gasPrice);
   const fee = {
     amount: [PaxiCosmJS.coins(String(feeAmount), NETWORK.denom)[0]],

@@ -227,6 +227,12 @@
       'migrate_done': '该钱包已迁移过，无需重复操作',
       'migrate_opening': '管理员尚未开放迁移入口',
       'migrate_none': '老合约里没有可迁移的卡牌或碎片',
+      // ---- 迁移上限说明（gas 容量约束）----
+      'migrate_limit_note': '⚠️ 单次最多迁移 30 张卡（gas 容量上限）。老合约卡牌超过 30 张的，请先在老合约里把多余的卡分解掉，再回来迁移。每个钱包只有一次迁移机会，但迁移失败不会消耗这次机会。',
+      'migrate_over_limit': '老合约有 {n} 张卡，超过单次上限 {max} 张。请先在老合约分解掉 {over} 张后再迁移（分解后本提示会自动刷新）。',
+      'migrate_gas_hint': '本次按 {n} 张卡设置 gas 上限 {gas}（未用完会原路退还）。',
+      'migrate_no_preview': '（未能读取老合约卡数，已按 {max} 张卡的上限准备 gas）',
+      'migrate_blocked': '老合约卡数超限，请先分解后再迁移',
     },
     en: {
       'sg_title': '🀄 Three Kingdoms · Cards',
@@ -362,11 +368,21 @@
       'migrate_done': 'This wallet has already migrated',
       'migrate_opening': 'Migration not opened yet',
       'migrate_none': 'No cards or fragments to migrate',
+      // ---- Migration cap (gas budget) ----
+      'migrate_limit_note': '⚠️ Max 30 cards per migration (gas budget cap). If you hold more than 30 cards on the old contract, decompose the extra ones there first, then come back. One migration per wallet — a failed migration does not use up that chance.',
+      'migrate_over_limit': 'You have {n} cards on the old contract, over the {max}-card limit. Please decompose {over} of them first (this hint refreshes automatically afterwards).',
+      'migrate_gas_hint': 'Gas limit set to {gas} for {n} cards (unused gas is refunded).',
+      'migrate_no_preview': '(Could not read old-contract card count; gas prepared for the {max}-card cap.)',
+      'migrate_blocked': 'Card count over the limit — decompose first, then migrate',
     },
   };
   function t(k) {
     const l = (window.HUB_LANG === 'en') ? 'en' : 'zh';
     return (i18n[l] && i18n[l][k] != null) ? i18n[l][k] : (i18n.zh[k] != null ? i18n.zh[k] : k);
+  }
+  /** 带占位的文案：tf('migrate_over_limit', { n: 40, max: 30, over: 10 }) */
+  function tf(k, vars) {
+    return String(t(k)).replace(/\{(\w+)\}/g, (_, key) => (vars && vars[key] != null ? vars[key] : `{${key}}`));
   }
 
   // ============================================================
@@ -481,7 +497,7 @@
         },
       };
       try {
-        const hash = await execContract(payload, opts.funds || []);
+        const hash = await execContract(payload, opts.funds || [], '', opts);
         const tx = await waitForTx(hash);
         Session.bumpNonce();
         // tx 一并返回：调用方可以直接用 parseTxEvents 读本次交易的 attributes，
@@ -919,6 +935,7 @@
       <div class="card" id="sgMigrateCard" style="display:none">
         <div class="card-title">📦 ${t('migrate_title')}</div>
         <div class="desc">${t('migrate_desc')}</div>
+        <div class="hint" style="margin-top:6px;color:#e8b04b">${t('migrate_limit_note')}</div>
         <div id="sgMigrateLog"></div>
         <button class="btn btn-primary" id="sgMigrateBtn" style="margin-top:8px">${t('migrate_btn')}</button>
       </div>
@@ -972,6 +989,44 @@
   // ============================================================
   // 本会话是否已迁移成功（合约侧每钱包只允许一次，这里只是省掉一次必然失败的 tx）
   let migrationDone = false;
+  // 预览阶段读到的老合约卡数（null = 未知）；用于算 gas 上限，真正发交易前还会再核一次
+  let oldMigrateCardCount = null;
+
+  // ============================================================
+  // 迁移容量 / gas 预算（链上实测校准，2026-09-20）
+  //   实测：迁 3 张 = 454,173 gas；迁 3 张（另一钱包）= 454,186 gas
+  //   拟合：gas(N) ≈ 364,000 + 30,000 × N   （N=3 代入得 454k，与实测吻合）
+  //   固定开销 ≈ 36 万（白名单读 + secp256k1 验签 + 2 次跨合约 query 实例化老合约 VM）
+  //   每张卡 ≈ 3 万（2 读：MIGRATED_CARDS / CARD_ID_COUNTER；3 写：COUNTER / CARDS / MIGRATED_CARDS）
+  // → 600k 只能迁约 8 张；30 张约需 126~156 万；故单次上限定 30 张 + gas 按卡数自适应。
+  // ============================================================
+  const MIGRATE_MAX_CARDS = 30;          // 单次迁移卡数上限（超了先去老合约分解）
+  const MIGRATE_GAS_BASE = 400_000;      // 固定开销（实测 36 万，取 40 万留余量）
+  const MIGRATE_GAS_PER_CARD = 60_000;   // 每张卡（实测约 3 万，取 6 万 = 2 倍冗余）
+  const MIGRATE_GAS_MIN = 600_000;       // 与其余玩法一致的下限
+  const MIGRATE_GAS_MAX = 3_000_000;     // 30 张 → 400k + 60k×30 = 220 万，封顶 300 万
+  // 卡数未知（预览查询失败）时按满额 30 张准备 → 220 万，不会爆
+  const MIGRATE_GAS_UNKNOWN = MIGRATE_GAS_BASE + MIGRATE_GAS_PER_CARD * MIGRATE_MAX_CARDS;
+
+  /** 按老合约卡数算本次迁移的 gas 上限（clamp 在 [MIN, MAX]） */
+  function migrationGasLimit(cardCount) {
+    // ⚠️ 必须先判 null/undefined：Number(null) === 0，会误判成"0 张卡"只给 60 万
+    if (cardCount == null) return Math.min(MIGRATE_GAS_MAX, MIGRATE_GAS_UNKNOWN);
+    const n = Number(cardCount);
+    if (!Number.isFinite(n) || n < 0) return Math.min(MIGRATE_GAS_MAX, MIGRATE_GAS_UNKNOWN);
+    return Math.min(MIGRATE_GAS_MAX, Math.max(MIGRATE_GAS_MIN, MIGRATE_GAS_BASE + MIGRATE_GAS_PER_CARD * n));
+  }
+
+  /** 读老合约当前钱包的卡数；失败返回 null（不阻断，按满额准备 gas） */
+  async function fetchOldCardCount() {
+    if (!state.wallet) return null;
+    try {
+      const cards = await queryAnyContract(OLD_SANGUO_CONTRACT, { player_cards: { address: state.wallet.address } });
+      return (cards && cards.cards) ? cards.cards.length : 0;
+    } catch (e) {
+      return null;
+    }
+  }
 
   /**
    * 渲染「一键迁移」入口。
@@ -1012,12 +1067,23 @@
       const fg = (frags && (frags.common || frags.rare || frags.epic || frags.legend))
         ? `${frags.common || 0}/${frags.rare || 0}/${frags.epic || 0}/${frags.legend || 0}`
         : '0/0/0/0';
+      oldMigrateCardCount = n;
       log.innerHTML = `<div class="hint" style="margin-top:6px">老合约：${esc(n)} 张卡 · 碎片(普/稀/史/传) ${esc(fg)}</div>`;
       if (n === 0 && fg === '0/0/0/0') {
         btn.disabled = true;
         log.innerHTML += `<div class="hint" style="margin-top:4px">${t('migrate_none')}</div>`;
+      } else if (n > MIGRATE_MAX_CARDS) {
+        // 🟢 超出单次 gas 容量：直接拦下，避免玩家点了必然 out of gas 的交易（手续费白扣）
+        btn.disabled = true;
+        btn.textContent = t('migrate_blocked');
+        log.innerHTML += `<div class="hint err" style="margin-top:4px">⚠️ ${esc(tf('migrate_over_limit', { n, max: MIGRATE_MAX_CARDS, over: n - MIGRATE_MAX_CARDS }))}</div>`;
+      } else {
+        log.innerHTML += `<div class="hint" style="margin-top:4px">${esc(tf('migrate_gas_hint', { n, gas: migrationGasLimit(n).toLocaleString('en-US') }))}</div>`;
       }
-    } catch (e) { /* 预览失败不阻断迁移按钮 */ }
+    } catch (e) {
+      // 预览失败：不阻断按钮，但提示已按满额准备 gas
+      log.innerHTML += `<div class="hint" style="margin-top:4px">${esc(tf('migrate_no_preview', { max: MIGRATE_MAX_CARDS }))}</div>`;
+    }
   }
 
   /**
@@ -1032,10 +1098,28 @@
     const log = $('sgMigrateLog');
     showBusy(t('migrate_doing'));
     try {
+      // 🟢 发交易前再核一次老合约卡数（预览到点击之间玩家可能又分解/抽了卡）
+      const n = await fetchOldCardCount();
+      oldMigrateCardCount = n;
+
+      // 🟢 超限保护：超过 30 张直接拦下，不发出注定 out of gas 的交易
+      //    （Cosmos 里 out of gas 照样扣手续费，拦下能帮玩家省这笔钱）
+      if (n != null && n > MIGRATE_MAX_CARDS) {
+        const tip = tf('migrate_over_limit', { n, max: MIGRATE_MAX_CARDS, over: n - MIGRATE_MAX_CARDS });
+        if (log) log.innerHTML = `<div class="hint err" style="margin-top:6px">⚠️ ${esc(tip)}</div>`;
+        const bb = $('sgMigrateBtn'); if (bb) { bb.disabled = true; bb.textContent = t('migrate_blocked'); }
+        showToast(tip, 'error');
+        return;
+      }
+
+      // 🟢 gas 随卡数线性增长（实测 ≈ 36 万固定 + 3 万/张），默认 600k 上限会被撑爆。
+      //    这里按实际卡数自适应（30 张 → 220 万；查不到卡数按 30 张满额 220 万准备）。
+      //    未用完的 gas 会原路退还，抬高上限不会让玩家多掏钱。
+      const gasLimit = migrationGasLimit(n);
       const { tx } = await sanguoExec(
         'SanguoMigrateFromOld',
         { old_contract: OLD_SANGUO_CONTRACT },
-        { action: 'migrate', spend: 0 },
+        { action: 'migrate', spend: 0, gasLimit },
       );
       const a = parseTxEvents(tx, ['cards_minted', 'cards_skipped', 'fragments_migrated']);
       const minted = (a.cards_minted && a.cards_minted[0]) || '0';
