@@ -66,6 +66,7 @@ const HUB_I18N = {
     dep_btn: '充值', wd_btn: '提现', save_btn: '保存并刷新',
     menu_deposit: '💰 充值', menu_withdraw: '💳 提现',
     menu_pump: '🚀 个性化发币', menu_burn: '🔥 燃烧代币', menu_reset: '🔄 重置数据',
+    menu_economy: '📖 玩法及经济说明',
     // —— 通用 ——
     processing: '处理中…', loading: '加载中…', back_home: '← 大厅', back_wallet: '← 钱包',
     not_deployed: '合约未部署', pending_deploy: '🔒 待部署', disabled: '已停用',
@@ -159,6 +160,7 @@ const HUB_I18N = {
     dep_btn: 'Deposit', wd_btn: 'Withdraw', save_btn: 'Save & Reload',
     menu_deposit: '💰 Deposit', menu_withdraw: '💳 Withdraw',
     menu_pump: '🚀 Personal Token', menu_burn: '🔥 Burn Token', menu_reset: '🔄 Reset Data',
+    menu_economy: '📖 Gameplay & economy',
     // —— common ——
     processing: 'Processing…', loading: 'Loading…', back_home: '← Hub', back_wallet: '← Wallet',
     not_deployed: 'Contract not deployed', pending_deploy: '🔒 Pending', disabled: 'Disabled',
@@ -273,6 +275,21 @@ function switchLang(lang) {
 // 个性化发币 / 燃烧代币（参照原三国设置外链）
 function openPump() { window.open('https://moxiaomo856.github.io/paxi-pump/', '_blank'); }
 function openBurn() { window.open('https://moxiaomo856.github.io/paxi-burn/', '_blank'); }
+
+// 玩法及经济说明（设置菜单入口）：纯静态说明，不发起任何链上请求
+function openEconomyInfo() {
+  const m = $('economyModal');
+  if (m) m.classList.add('active');
+}
+function closeEconomyInfo() {
+  const m = $('economyModal');
+  if (m) m.classList.remove('active');
+}
+// 点击浮层空白处关闭
+document.addEventListener('click', (e) => {
+  const m = $('economyModal');
+  if (m && m.classList.contains('active') && e.target === m) m.classList.remove('active');
+});
 
 // ============================================================
 // 钱包

@@ -224,6 +224,10 @@
       'propose_ok': '提案已提交',
       'vote_ok': '投票成功',
       'claim_ok': '已领取',
+      // ---- 到账/消耗金额提示（前端自解析交易事件，绕开钱包把 burn 当到账显示的问题） ----
+      'claim_in': '✅ 已到账 {amt} TKCC',
+      'claim_in_burn': '✅ 已到账 {amt} TKCC（合约另销毁 {burned} TKCC）',
+      'spent_tip': '✅ {what} · 本次消耗 {amt} TKCC（合约内余额扣除）',
       'need_three': '请先选择 3 张卡牌',
 
       // ---- 老合约资产迁移 ----
@@ -373,6 +377,10 @@
       'propose_ok': 'Proposal submitted',
       'vote_ok': 'Voted',
       'claim_ok': 'Claimed',
+      // ---- Payout / spend amount tips (parsed from the tx itself) ----
+      'claim_in': '✅ Received {amt} TKCC',
+      'claim_in_burn': '✅ Received {amt} TKCC (contract burned {burned} TKCC)',
+      'spent_tip': '✅ {what} · spent {amt} TKCC (from in-contract balance)',
       'need_three': 'Select 3 cards first',
 
       // ---- Old contract migration ----
@@ -419,6 +427,64 @@
     return esc((RARITY_LABEL[r] && RARITY_LABEL[r][l]) || r || '');
   }
   function power(c) { return (Number(c.attack || 0) + Number(c.defense || 0)); }
+
+  // 对战里展示玩家地址：只保留前 15 个字符，其余用省略号代替（避免长地址撑破排版）
+  function sgShortAddr(a) {
+    const s = String(a || '');
+    if (s.length <= 15) return s;
+    return s.slice(0, 15) + '…';
+  }
+
+  // ============================================================
+  // 🟢 交易金额自解析（**纯展示层，不改任何业务逻辑**）
+  //    TKCC 是 PRC-20(cw20) 代币，链上精度 6。领奖类交易在合约内部会发两条子事件：
+  //      transfer（把奖励打给玩家）  +  burn（按 5% 抽水销毁）
+  //    第三方钱包常只取"最后一条 PRC-20 事件"→ 把 burn 当作到账额显示
+  //    （实测：真实到账 168,000 TKCC 被钱包显示成 36,000 TKCC）。
+  //    这里由前端直接读本次交易的 transfer 事件，把**真实到账额**提示给玩家，
+  //    玩家无需再回钱包对账。
+  // ============================================================
+  function sgTkccEvents(tx) {
+    const out = { inbound: 0n, burn: 0n };
+    if (!tx) return out;
+    let self = '';
+    try { self = (state.wallet && state.wallet.address) || ''; } catch (_) { self = ''; }
+    const evs = [...(tx.events || [])];
+    for (const log of tx.logs || []) evs.push(...(log.events || []));
+    for (const ev of evs) {
+      if (!ev || ev.type !== 'wasm') continue;
+      const m = {};
+      for (const a of ev.attributes || []) m[a.key] = a.value;   // 本节点 attributes 为明文，勿盲目 base64 解码
+      if (m.action === 'transfer' && m.amount && m.to === self) {
+        try { out.inbound += BigInt(m.amount); } catch (_) { /* 忽略异常值 */ }
+      } else if (m.action === 'burn' && m.amount) {
+        try { out.burn += BigInt(m.amount); } catch (_) { /* 忽略异常值 */ }
+      }
+    }
+    return out;
+  }
+
+  /** 领奖成功提示：优先显示本次真实到账额；解析不到则回退原文案（如合约改为内部记账时） */
+  function sgClaimToast(tx, fallbackKey) {
+    const m = sgTkccEvents(tx);
+    if (m.inbound > 0n) {
+      const key = (m.burn > 0n) ? 'claim_in_burn' : 'claim_in';
+      showToast(tf(key, {
+        amt: fromRawUnits(String(m.inbound), 6),
+        burned: fromRawUnits(String(m.burn), 6),
+      }), 'success');
+      return;
+    }
+    showToast(t(fallbackKey), 'success');
+  }
+
+  /** 消耗类操作（建房/加入/挑战）成功提示：写明本次扣了多少 TKCC（从合约内余额扣，钱包里看不到） */
+  function sgSpentTip(whatKey, rawFee) {
+    showToast(tf('spent_tip', {
+      what: t(whatKey),
+      amt: fromRawUnits(String(rawFee || 0), 6),
+    }), 'success');
+  }
   const RARITY_ORDER = { legend: 0, epic: 1, rare: 2, common: 3 };
   void RARITY_ORDER; // 保留备用（排序用）
   function rarityColor(r) {
@@ -1171,8 +1237,8 @@
     } catch (e) { showToast(e.message, 'error'); return; }
     showBusy(t('doing'));
     try {
-      await sanguoExec('SanguoClaimReward', { battle_id: battleId }, { action: 'claim_reward', spend: 0 });
-      showToast(t('ok_short'), 'success');
+      const res = await sanguoExec('SanguoClaimReward', { battle_id: battleId }, { action: 'claim_reward', spend: 0 });
+      sgClaimToast(res.tx, 'ok_short');
       renderSanguoTab();
     } catch (e) {
       showToast(t('fail_prefix') + (e.message || e), 'error');
@@ -1185,10 +1251,18 @@
     } catch (e) { showToast(e.message, 'error'); return; }
     showBusy(t('doing'));
     try {
+      let inSum = 0n, burnSum = 0n;
       for (const id of ids) {
-        await sanguoExec('SanguoClaimReward', { battle_id: id }, { action: 'claim_reward', spend: 0 });
+        const r = await sanguoExec('SanguoClaimReward', { battle_id: id }, { action: 'claim_reward', spend: 0 });
+        const m = sgTkccEvents(r.tx);
+        inSum += m.inbound; burnSum += m.burn;
       }
-      showToast(t('ok_short'), 'success');
+      if (inSum > 0n) {
+        showToast(tf((burnSum > 0n) ? 'claim_in_burn' : 'claim_in', {
+          amt: fromRawUnits(String(inSum), 6),
+          burned: fromRawUnits(String(burnSum), 6),
+        }), 'success');
+      } else { showToast(t('ok_short'), 'success'); }
       renderSanguoTab();
     } catch (e) {
       showToast(t('fail_prefix') + (e.message || e), 'error');
@@ -1358,7 +1432,7 @@
     showBusy(t('doing'));
     try {
       const res = await sanguoExec('SanguoAiBattle', { difficulty: diff }, { action: 'ai_battle', spend: fee });
-      showToast(t('ok_short'), 'success');
+      sgSpentTip('ok_short', fee);
       // 🟢 前端新增：对战竞技场（双方出牌 + 胜负 + 奖励）
       try { await showAiBattleFromTx(res.tx, diff); } catch (_) { /* 展示失败不影响主流程 */ }
       renderSanguoTab();
@@ -1816,7 +1890,7 @@
           if (m.status === 'finished' && isWinner && !m.reward_claimed) buttons.push(`<button class="btn btn-sm btn-gold" data-claim="${m.match_id}">${t('pvp_claim')}</button>`);
           return `<div style="border-bottom:1px solid #1c2740;padding:6px 0">
             <div style="font-size:12px;font-weight:700;color:#fff">${t('match_id_label')}: ${esc(m.match_id)}</div>
-            <div style="font-size:11px;color:#9fb3d1">${t('status_label')}: ${m.status} · ${t('opponent_label')}: ${m.opponent ? esc(m.opponent) : (m.is_public ? t('pvp_public') : '—')}</div>
+            <div style="font-size:11px;color:#9fb3d1">${t('status_label')}: ${m.status} · ${t('opponent_label')}: ${m.opponent ? esc(sgShortAddr(m.opponent)) : (m.is_public ? t('pvp_public') : '—')}</div>
             <div style="display:flex;gap:4px;margin-top:4px">${buttons.join('')}</div>
           </div>`;
         }).join('');
@@ -1838,7 +1912,7 @@
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoCreatePvp', { opponent: isPublic ? '' : opponent, card_ids: sanguoPicked.slice(), public: isPublic }, { action: 'create_pvp', spend: p.pvp_fee });
-      showToast(t('create_ok'), 'success');
+      sgSpentTip('create_ok', p.pvp_fee);
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1859,12 +1933,12 @@
     try {
       if (sgPendingAction === 'accept_pvp') {
         await sanguoExec('SanguoAcceptPvp', { match_id: sgPendingId, card_ids: sanguoPicked.slice() }, { action: 'accept_pvp', spend: p.pvp_fee });
-        showToast(t('accept_ok'), 'success');
+        sgSpentTip('accept_ok', p.pvp_fee);
         // 🟢 前端新增：对战竞技场（双方出牌 + 胜负）
         try { await showPvpBattle(sgPendingId); } catch (_) { /* 展示失败不影响主流程 */ }
       } else if (sgPendingAction === 'join_royale') {
         await sanguoExec('SanguoJoinRoyale', { royale_id: sgPendingId, card_ids: sanguoPicked.slice() }, { action: 'join_royale', spend: p.royale_entry_fee });
-        showToast(t('join_ok'), 'success');
+        sgSpentTip('join_ok', p.royale_entry_fee);
       }
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
@@ -1884,8 +1958,8 @@
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     showBusy(t('doing'));
     try {
-      await sanguoExec('SanguoClaimPvpReward', { match_id: matchId }, { action: 'claim_pvp', spend: 0 });
-      showToast(t('claim_ok'), 'success');
+      const res = await sanguoExec('SanguoClaimPvpReward', { match_id: matchId }, { action: 'claim_pvp', spend: 0 });
+      sgClaimToast(res.tx, 'claim_ok');
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1959,7 +2033,7 @@
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoCreateRoyale', { size, card_ids: sanguoPicked.slice() }, { action: 'create_royale', spend: p.royale_entry_fee });
-      showToast(t('create_ok'), 'success');
+      sgSpentTip('create_ok', p.royale_entry_fee);
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1987,8 +2061,8 @@
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     showBusy(t('doing'));
     try {
-      await sanguoExec('SanguoClaimRoyaleReward', { royale_id: royaleId }, { action: 'claim_royale', spend: 0 });
-      showToast(t('claim_ok'), 'success');
+      const res = await sanguoExec('SanguoClaimRoyaleReward', { royale_id: royaleId }, { action: 'claim_royale', spend: 0 });
+      sgClaimToast(res.tx, 'claim_ok');
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -2259,7 +2333,7 @@
       const cards = await cardsFromIds(orders[i] || []);
       const isMe = state.wallet && players[i] === state.wallet.address;
       const isWin = winner && players[i] === winner;
-      const short = players[i].slice(0, 6) + '…' + players[i].slice(-4);
+      const short = sgShortAddr(players[i]);
       sides.push({ label: (isMe ? '你' : short) + (isWin ? ' 👑' : ''), cards });
     }
     showBattle({ sides, result });

@@ -389,7 +389,7 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   box-shadow:0 1px 4px rgba(0,0,0,.5); border:1px solid #ffe9a8;
 }
 .sg-card .sg-card-img {
-  flex:4; min-height:0; display:flex; align-items:center; justify-content:center;
+  flex:3; min-height:0; display:flex; align-items:center; justify-content:center;
   background: radial-gradient(ellipse at 50% 80%, rgba(60,40,20,0.2), transparent 70%);
   overflow:hidden; padding:2px;
 }
@@ -489,6 +489,12 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 .final-result.lose { color:#f44336; }
 .final-result.draw { color:#ffd700; }
 
+/* 通用隐藏工具类
+   🔴 修复：此前项目里没有任何地方定义 .hidden，导致 index.html 中
+   `<div id="modalLoading" class="hidden">处理中…</div>` 的 class 完全不生效，
+   转圈 +「处理中...」常驻在卡牌详情弹窗底部。补上这条规则即可。 */
+.hidden { display: none !important; }
+
 /* 弹窗（图鉴 / 卡牌详情） */
 .modal-overlay {
   position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7);
@@ -517,14 +523,48 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 .codex-card .cc-foot .nm { font-weight:700; color:#fff; font-size:11px; }
 .codex-card .cc-foot .rr { color:#ffd700; font-size:9px; }
 .codex-progress { margin:6px 0 10px; font-size:12px; color:#8a7a6a; }
-.card-detail-modal .card-preview { text-align:center; padding:6px 0; }
-.card-detail-modal .card-preview img { max-width:140px; max-height:160px; border-radius:10px; }
-.card-detail-modal .card-name-detail { font-size:20px; font-weight:bold; margin-top:4px; }
-.card-detail-modal .card-sub-detail { font-size:13px; color:#8a7a6a; }
-.card-detail-modal .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:8px 0; }
+
+/* 玩法及经济说明弹窗 */
+.eco-modal { max-width:720px; }
+.eco-body { font-size:13px; line-height:1.65; color:#d9cbb8; font-family:inherit; }
+.eco-body h3 {
+  font-size:15px; color:#ffd700; font-weight:700; margin:16px 0 8px;
+  padding-bottom:5px; border-bottom:1px solid rgba(200,160,100,0.25); letter-spacing:1px;
+}
+.eco-body h3:first-child { margin-top:4px; }
+.eco-body h4 { font-size:13.5px; color:#e8b04b; font-weight:700; margin:12px 0 5px; }
+.eco-body p { margin:5px 0; }
+.eco-body ul { margin:5px 0 5px 18px; padding:0; }
+.eco-body li { margin:3px 0; }
+.eco-body code {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#6ee7b7;
+  background:rgba(110,231,183,0.08); padding:1px 5px; border-radius:4px; word-break:break-all;
+}
+.eco-tb { width:100%; border-collapse:collapse; margin:6px 0; font-size:12.5px; }
+.eco-tb th, .eco-tb td {
+  border:1px solid rgba(200,160,100,0.22); padding:4px 7px; text-align:left; vertical-align:top;
+}
+.eco-tb th { background:rgba(200,160,100,0.12); color:#ffd700; font-weight:700; white-space:nowrap; }
+.eco-tb tr:nth-child(even) td { background:rgba(255,255,255,0.02); }
+/* 宽表格在手机上横向滑动，不撑破弹窗 */
+.eco-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:6px 0; }
+.eco-scroll .eco-tb { margin:0; min-width:460px; }
+/* 卡牌详情弹窗：图形占 3/4、说明占 1/4；参数一行一个（紧凑） */
+.card-detail-modal .card-preview { text-align:center; padding:4px 0 6px; }
+.card-detail-modal .card-preview img {
+  width:auto; max-width:100%; max-height:34vh;
+  aspect-ratio:3/4; object-fit:cover; border-radius:10px;
+}
+.card-detail-modal .card-name-detail { font-size:18px; font-weight:bold; margin-top:4px; line-height:1.2; }
+.card-detail-modal .card-sub-detail { font-size:12px; color:#8a7a6a; line-height:1.2; }
+.card-detail-modal .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:3px 12px; margin:8px 0 0; }
+.card-detail-modal .info-grid .ig {
+  display:flex; align-items:baseline; justify-content:space-between; gap:6px;
+  font-size:13px; line-height:1.5; border-bottom:1px dashed rgba(200,160,100,0.12); padding:1px 0;
+}
 .card-detail-modal .info-grid .label { color:#8a7a6a; }
 .card-detail-modal .info-grid .value { font-weight:bold; color:#ffd700; }
-.card-detail-modal .card-desc { font-size:14px; color:#c9b8a8; line-height:1.5; margin-top:8px; padding-top:8px; border-top:1px solid rgba(200,160,100,0.1); }
+.card-detail-modal .card-desc { font-size:12px; color:#c9b8a8; line-height:1.4; margin-top:6px; padding-top:6px; border-top:1px solid rgba(200,160,100,0.1); }
 .card-detail-modal .star-actions { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px solid rgba(200,160,100,0.1); }
 .card-detail-modal .star-actions .btn { min-width:80px; }
 
@@ -553,6 +593,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
         <button class="menu-item" data-i18n="menu_deposit" onclick="switchTab('wallet');toggleSettingsMenu()">💰 充值</button>
         <button class="menu-item" data-i18n="menu_withdraw" onclick="switchTab('wallet');toggleSettingsMenu()">💳 提现</button>
         <div class="menu-divider"></div>
+        <button class="menu-item" data-i18n="menu_economy" onclick="openEconomyInfo();toggleSettingsMenu()">📖 玩法及经济说明</button>
+        <div class="menu-divider"></div>
         <button class="menu-item" data-i18n="menu_pump" onclick="openPump();toggleSettingsMenu()">🚀 个性化发币</button>
         <button class="menu-item" data-i18n="menu_burn" onclick="openBurn();toggleSettingsMenu()">🔥 燃烧代币</button>
         <div class="menu-divider"></div>
@@ -579,6 +621,146 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   <div class="tab"        data-tab="me"     onclick="switchTab('me')"><span class="ti">👤</span><span data-i18n="tab_me">我的</span></div>
 </nav>
 
+<!-- ===== 玩法及经济说明弹窗（设置菜单入口） ===== -->
+<div class="modal-overlay" id="economyModal">
+  <div class="modal eco-modal">
+    <button class="close-btn" onclick="closeEconomyInfo()">✕</button>
+    <h2>📖 玩法及经济说明</h2>
+    <div class="eco-body">
+
+      <h3>一、开始之前：钱怎么进、怎么出</h3>
+      <ul>
+        <li>所有抽卡、养成、对战、下注，扣的都是<b>合约内余额</b>，不是钱包余额。路径：钱包 TKCC → <code>approve</code> 授权 → <code>deposit</code> 充值 → 合约内余额。</li>
+        <li>所以下注时钱包里看不到 TKCC 变动，这是<b>正常现象</b>，不是没扣钱。</li>
+        <li>赢的钱先进入<b>合约内余额</b>，必须点「领取奖励」才提回钱包。</li>
+        <li>领奖交易会同时产生一条<b>销毁</b>记录。<b>销毁量不是你的到账金额</b>，请以到账提示 / <code>transfer</code> 事件为准。</li>
+        <li><b>原生 PAXI 永不销毁</b>；只有 TKCC 会销毁。销毁是直接减少总供应，<b>不转入任何地址</b>。</li>
+        <li>运营收款地址（唯一）：<code>paxi194kpjqhyz7re2g749lc2030cgeg4sql5ldvyem</code></li>
+        <li>链上金额精度 6 位：1 TKCC = 1,000,000。</li>
+        <li>无感模式：由会话地址代为签名，gas 仍由主钱包通过 feegrant 支付，约 0.03 PAXI / 笔。</li>
+      </ul>
+
+      <h3>二、三国 · 每种玩法要多少、怎么分</h3>
+      <p><b>重要：三国不适用全局 5% / 5% 的规则。</b>它的比例硬编码在三国自己的参数里，各玩法差别很大。</p>
+
+      <h4>1. 抽卡</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>玩法</th><th>你要付</th><th>给运营</th><th>销毁</th><th>拿到</th></tr>
+        <tr><td>单抽</td><td>10 PAXI + 200,000 TKCC</td><td>10 PAXI + <b>120,000 TKCC</b></td><td><b>80,000 TKCC</b></td><td>1 张卡</td></tr>
+        <tr><td>三连抽</td><td>30 PAXI + 500,000 TKCC</td><td>30 PAXI + <b>300,000 TKCC</b></td><td><b>200,000 TKCC</b></td><td>3 张卡</td></tr>
+      </table>
+      </div>
+      <p>TKCC 部分固定拆成 <b>运营 60% + 销毁 40%</b>；PAXI 部分全额归运营，不销毁。</p>
+
+      <h4>2. 养成（升星 / 升级 / 分解）</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>操作</th><th>消耗</th><th>效果</th><th>销毁</th><th>庄家</th></tr>
+        <tr><td>升星<br>（付 TKCC）</td><td>50,000 / 150,000 / 400,000 / 1,000,000 TKCC<br>（按当前星级）</td><td>升 1 星；攻击 +5 / 12 / 25 / 50，防御 +3 / 8 / 18 / 35</td><td><b>消耗的 50%</b></td><td><b>消耗的 50%</b></td></tr>
+        <tr><td>升星<br>（付碎片）</td><td>50 / 100 / 200 / 500 碎片<br>（按稀有度）</td><td>升 1 星，属性提升同上</td><td>0</td><td>0</td></tr>
+        <tr><td>升级</td><td>碎片 50 / 100 / 200 / 500<br>（按稀有度）</td><td>攻击 +3、防御 +2，上限 10 级</td><td>0</td><td>0</td></tr>
+        <tr><td>分解</td><td>销毁 1 张卡牌</td><td>获得 5 / 10 / 20 / 50 碎片<br>（按稀有度）</td><td>烧的是卡，不涉及 TKCC</td><td>0</td></tr>
+      </table>
+      </div>
+      <p><b>注意：升级不花 TKCC</b>，只消耗碎片。升星才可用 TKCC 或碎片两种方式。</p>
+
+      <h4>3. AI 对战（难度 1~5）</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>难度</th><th>你要付</th><th>赢了拿</th><th>销毁</th><th>庄家</th></tr>
+        <tr><td>1</td><td>10,000 TKCC</td><td><b>11,000 TKCC</b></td><td>1,000</td><td>9,000</td></tr>
+        <tr><td>2</td><td>15,000 TKCC</td><td><b>25,000 TKCC</b></td><td>1,500</td><td>13,500</td></tr>
+        <tr><td>3</td><td>20,000 TKCC</td><td><b>45,000 TKCC</b></td><td>2,000</td><td>18,000</td></tr>
+        <tr><td>4</td><td>25,000 TKCC</td><td><b>65,000 TKCC</b></td><td>2,500</td><td>22,500</td></tr>
+        <tr><td>5</td><td>30,000 TKCC</td><td><b>110,000 TKCC</b></td><td>3,000</td><td>27,000</td></tr>
+      </table>
+      </div>
+      <p>消耗的费用按 <b>销毁 10% + 庄家 90%</b> 拆分。赢得的奖励需点「领取」提回钱包；每个账号每天最多 20 局。</p>
+
+      <h4>4. PVP 与混战</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>玩法</th><th>你要付</th><th>赢了拿</th><th>销毁</th><th>庄家</th></tr>
+        <tr><td>PVP</td><td>双方各 60,000 TKCC</td><td>赢家 <b>120,000 TKCC</b></td><td>0</td><td>0</td></tr>
+        <tr><td>混战<br>（4 人局）</td><td>每人 60,000 TKCC<br>奖池 240,000</td><td>赢家 <b>168,000 TKCC</b><br>（奖池 70%）</td><td><b>36,000 TKCC</b><br>（奖池 15%）</td><td><b>36,000 TKCC</b><br>（奖池 15%）</td></tr>
+      </table>
+      </div>
+      <ul>
+        <li><b>PVP 零抽水</b> —— 输家的本钱全额给赢家，合约一分不留。</li>
+        <li>混战按 <b>赢家 70% / 销毁 15% / 庄家 15%</b> 拆分，三项相加正好 100%。</li>
+        <li>「庄家」指留在合约 <code>HOUSE_BANKROLL</code>（庄家准备金）里的钱，用于给各玩法兜赔付，<b>不是运营收入</b>。</li>
+      </ul>
+
+      <h3>三、猜数字</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>项目</th><th>值</th></tr>
+        <tr><td>下注范围</td><td>单局 10,000 ~ 100,000 TKCC</td></tr>
+        <tr><td>玩法</td><td>从 1~10 中猜一个数字</td></tr>
+        <tr><td>中了拿</td><td>下注额 × <b>8.10</b>（即净赚 7.10 倍）</td></tr>
+        <tr><td>命中概率</td><td>1 / 10 = 10%</td></tr>
+        <tr><td><b>长期回本率</b></td><td><b>81%</b>（庄家优势 19%）</td></tr>
+        <tr><td>每日限额</td><td>累计下注 ≤ 5,000,000 TKCC，且 ≤ 500 局</td></tr>
+      </table>
+      </div>
+
+      <h4>输了怎么分（以 10,000 为例）</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>去向</th><th>金额</th><th>比例</th></tr>
+        <tr><td>销毁</td><td>500 TKCC</td><td>5%</td></tr>
+        <tr><td>给运营</td><td>500 TKCC</td><td>5%</td></tr>
+        <tr><td>进庄家准备金</td><td>9,000 TKCC</td><td>90%</td></tr>
+      </table>
+      </div>
+      <p><b>只对输局的下注额计算，赢局不扣。</b></p>
+
+      <h3>四、骰子</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>玩法</th><th>中了拿</th><th>命中率</th><th>回本率</th><th>说明</th></tr>
+        <tr><td>骰宝 · 押大小</td><td>下注 × <b>1.74</b></td><td>48.61%</td><td>84.6%</td><td>三颗骰子；开出豹子（三颗同点）时大小通杀</td></tr>
+        <tr><td>骰宝 · 指定点数</td><td>下注 × <b>2.15</b></td><td>42.13%</td><td>90.6%</td><td>指定 1~6，任意一颗骰子命中即赢</td></tr>
+        <tr><td>疯狂骰子</td><td>下注 × <b>5.21</b></td><td>16.67%</td><td>86.8%</td><td>单颗骰子，指定点数</td></tr>
+      </table>
+      </div>
+      <p>下注范围同为单局 10,000 ~ 100,000 TKCC，每日累计 ≤ 5,000,000 TKCC、≤ 500 局。</p>
+      <p>分配方式与猜数字一致：<b>只对输局</b>按 <b>5% 销毁 + 5% 运营 + 90% 庄家准备金</b> 拆分，赢局不扣。</p>
+
+      <h3>五、全局累计数据（链上实测）</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>项目</th><th>值</th><th>说明</th></tr>
+        <tr><td>游戏合约</td><td><code>paxi1n6ykwpzl5aandw0233xq42m79u8cemp0t9eh5hxfx8jme9hrkzystrqmg8</code></td><td>所有玩法共用</td></tr>
+        <tr><td>累计已销毁</td><td><b>48,000 TKCC</b></td><td><code>total_burned = 48000000000</code></td></tr>
+        <tr><td>累计已进运营</td><td><b>48,000 TKCC</b></td><td><code>total_treasury = 48000000000</code></td></tr>
+        <tr><td>运营地址</td><td><code>paxi194kpjqhyz7re2g749lc2030cgeg4sql5ldvyem</code></td><td>唯一收款地址</td></tr>
+        <tr><td>销毁地址</td><td>无</td><td>直接减少总供应，不转入地址</td></tr>
+      </table>
+      </div>
+      <p>每局销毁的 TKCC 永久退出流通，总供应持续减少，形成通缩。</p>
+
+      <h3>六、一分钟速查（最容易讲错的地方）</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>玩法</th><th>销毁</th><th>运营</th><th>庄家</th><th>备注</th></tr>
+        <tr><td>三国 · 抽卡</td><td>40%</td><td>60%</td><td>0</td><td>不是 5% / 5%</td></tr>
+        <tr><td>三国 · AI 对战</td><td>费用的 10%</td><td>0</td><td>费用的 90%</td><td>奖励需点「领取」</td></tr>
+        <tr><td>三国 · 升星</td><td>50%</td><td>0</td><td>50%</td><td>碎片升星不花钱</td></tr>
+        <tr><td>三国 · 升级</td><td>0</td><td>0</td><td>0</td><td>只烧碎片，不花 TKCC</td></tr>
+        <tr><td>三国 · PVP</td><td>0</td><td>0</td><td>0</td><td>零抽水</td></tr>
+        <tr><td>三国 · 混战</td><td>奖池 15%</td><td>0</td><td>奖池 15%</td><td>赢家 70%</td></tr>
+        <tr><td>猜数字 / 骰子</td><td>输局 5%</td><td>输局 5%</td><td>输局 90%</td><td>赢局不扣</td></tr>
+      </table>
+      </div>
+
+      <p style="margin-top:12px;color:#8a7a6a;font-size:12px">以上数值来自链上合约参数与真实交易事件核对，如管理员调整参数，以链上最新值为准。</p>
+
+    </div>
+  </div>
+</div>
+
 <!-- ===== 卡牌图鉴弹窗（三国专用，全局浮层） ===== -->
 <div class="modal-overlay" id="codexModal">
   <div class="modal">
@@ -599,12 +781,12 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
       <div class="card-sub-detail" id="detailSub">—</div>
     </div>
     <div class="info-grid">
-      <div><span class="label">稀有度</span><br><span class="value" id="detailRarity">—</span></div>
-      <div><span class="label">阵营</span><br><span class="value" id="detailIdentity">—</span></div>
-      <div><span class="label">攻击</span><br><span class="value" id="detailAtk">—</span></div>
-      <div><span class="label">防御</span><br><span class="value" id="detailDef">—</span></div>
-      <div><span class="label">战力</span><br><span class="value" id="detailPower">—</span></div>
-      <div><span class="label">⭐ 星级</span><br><span class="value" id="detailStar">—</span></div>
+      <div class="ig"><span class="label">稀有度</span><span class="value" id="detailRarity">—</span></div>
+      <div class="ig"><span class="label">阵营</span><span class="value" id="detailIdentity">—</span></div>
+      <div class="ig"><span class="label">攻击</span><span class="value" id="detailAtk">—</span></div>
+      <div class="ig"><span class="label">防御</span><span class="value" id="detailDef">—</span></div>
+      <div class="ig"><span class="label">共计</span><span class="value" id="detailPower">—</span></div>
+      <div class="ig"><span class="label">⭐ 星级</span><span class="value" id="detailStar">—</span></div>
     </div>
     <div class="card-desc" id="detailDesc"></div>
     <div class="star-actions">
@@ -624,8 +806,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
      第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
      加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
      该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
-<script src="paxi-cosmjs.umd.js?v=20260920-11" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
-<script src="compat.js?v=20260920-11"></script>
+<script src="paxi-cosmjs.umd.js?v=20260921-3" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260921-3"></script>
 <script>
   // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
   if (typeof window.PaxiCosmJS === 'undefined') {
@@ -665,16 +847,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260920-11';</script>
-<script src="shared.js?v=20260920-11"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260920-11"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260920-11"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260920-11"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260921-3';</script>
+<script src="shared.js?v=20260921-3"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260921-3"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260921-3"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260921-3"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260920-11"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260920-11"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260921-3"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260921-3"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 
 <!-- 🟢 三国·卡牌：连接钱包后同步统计（仅当三国页已打开时刷新）；底部 Tab 高亮同步。
