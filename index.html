@@ -549,6 +549,9 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 /* 宽表格在手机上横向滑动，不撑破弹窗 */
 .eco-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:6px 0; }
 .eco-scroll .eco-tb { margin:0; min-width:460px; }
+/* 中英文双版本内容（玩法说明等）：按当前语言切换显示，默认全隐藏，仅 .active 显示 */
+.lang-zh, .lang-en { display:none; }
+.lang-zh.active, .lang-en.active { display:block; }
 /* 卡牌详情弹窗：图形占 3/4、说明占 1/4；参数一行一个（紧凑） */
 .card-detail-modal .card-preview { text-align:center; padding:4px 0 6px; }
 .card-detail-modal .card-preview img {
@@ -585,7 +588,7 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
     <span class="chip" id="hdrAddr" style="display:none">—</span>
     <button class="btn btn-primary btn-sm" id="btnConnect" style="display:none" onclick="connectWallet()" data-i18n="btn_connect">连接</button>
     <div class="settings-wrap">
-      <button class="settings-btn" id="btnSettings" onclick="toggleSettingsMenu()" title="设置">⚙️</button>
+      <button class="settings-btn" id="btnSettings" onclick="toggleSettingsMenu()" title="设置" data-i18n-title="menu_settings">⚙️</button>
       <div class="settings-menu" id="settingsMenu">
         <button class="menu-item" id="langZhBtn" onclick="switchLang('zh');toggleSettingsMenu()">🇨🇳 中文</button>
         <button class="menu-item" id="langEnBtn" onclick="switchLang('en');toggleSettingsMenu()">🇺🇸 English</button>
@@ -610,9 +613,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 <div id="bootErr" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
      background:#b00020;color:#fff;padding:14px 16px;font-size:14px;line-height:1.5;
      box-shadow:0 2px 8px rgba(0,0,0,.3)">
-  ⚠️ 链上 SDK（paxi-cosmjs.umd.js）未加载成功，应用暂时无法运行。<br>
-  请：① 手机浏览器<b>强制刷新</b>本页；② 确认该文件已随仓库一起部署到 GitHub Pages。<br>
-  <span style="opacity:.85">（若网络受限，可在能联网的环境刷新一次后再用）</span>
+  <div class="lang-zh active">
+    ⚠️ 链上 SDK（paxi-cosmjs.umd.js）未加载成功，应用暂时无法运行。<br>
+    请：① 手机浏览器<b>强制刷新</b>本页；② 确认该文件已随仓库一起部署到 GitHub Pages。<br>
+    <span style="opacity:.85">（若网络受限，可在能联网的环境刷新一次后再用）</span>
+  </div>
+  <div class="lang-en">
+    ⚠️ The on-chain SDK (paxi-cosmjs.umd.js) failed to load, so the app can't run yet.<br>
+    Please: ① <b>hard-refresh</b> this page in your mobile browser; ② make sure the file is deployed to GitHub Pages together with the repo.<br>
+    <span style="opacity:.85">(If your network is restricted, load it once from a network that can reach the file, then retry.)</span>
+  </div>
 </div>
 
 <nav class="tabbar">
@@ -625,8 +635,10 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 <div class="modal-overlay" id="economyModal">
   <div class="modal eco-modal">
     <button class="close-btn" onclick="closeEconomyInfo()">✕</button>
-    <h2>📖 玩法及经济说明</h2>
-    <div class="eco-body">
+    <h2 data-i18n="eco_title">📖 玩法及经济说明</h2>
+
+    <!-- ========== 中文版 ========== -->
+    <div class="eco-body lang-zh active">
 
       <h3>一、开始之前：钱怎么进、怎么出</h3>
       <ul>
@@ -669,14 +681,15 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
       <div class="eco-scroll">
       <table class="eco-tb">
         <tr><th>难度</th><th>你要付</th><th>赢了拿</th><th>销毁</th><th>庄家</th></tr>
-        <tr><td>1</td><td>10,000 TKCC</td><td><b>11,000 TKCC</b></td><td>1,000</td><td>9,000</td></tr>
-        <tr><td>2</td><td>15,000 TKCC</td><td><b>25,000 TKCC</b></td><td>1,500</td><td>13,500</td></tr>
-        <tr><td>3</td><td>20,000 TKCC</td><td><b>45,000 TKCC</b></td><td>2,000</td><td>18,000</td></tr>
-        <tr><td>4</td><td>25,000 TKCC</td><td><b>65,000 TKCC</b></td><td>2,500</td><td>22,500</td></tr>
-        <tr><td>5</td><td>30,000 TKCC</td><td><b>110,000 TKCC</b></td><td>3,000</td><td>27,000</td></tr>
+        <tr><td>1</td><td>10,000 TKCC</td><td><b>1,000 TKCC</b></td><td>1,000</td><td>9,000</td></tr>
+        <tr><td>2</td><td>15,000 TKCC</td><td><b>1,000 TKCC</b></td><td>1,500</td><td>13,500</td></tr>
+        <tr><td>3</td><td>20,000 TKCC</td><td><b>1,000 TKCC</b></td><td>2,000</td><td>18,000</td></tr>
+        <tr><td>4</td><td>25,000 TKCC</td><td><b>1,000 TKCC</b></td><td>2,500</td><td>22,500</td></tr>
+        <tr><td>5</td><td>30,000 TKCC</td><td><b>1,000 TKCC</b></td><td>3,000</td><td>27,000</td></tr>
       </table>
       </div>
       <p>消耗的费用按 <b>销毁 10% + 庄家 90%</b> 拆分。赢得的奖励需点「领取」提回钱包；每个账号每天最多 20 局。</p>
+      <p style="color:#c8a06a">⚠️ 当前链上奖励统一设为 <b>1,000 TKCC</b>（低于入场费），属临时设置，管理员可能随时调整，<b>以链上最新值为准</b>。</p>
 
       <h4>4. PVP 与混战</h4>
       <div class="eco-scroll">
@@ -733,8 +746,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
       <table class="eco-tb">
         <tr><th>项目</th><th>值</th><th>说明</th></tr>
         <tr><td>游戏合约</td><td><code>paxi1n6ykwpzl5aandw0233xq42m79u8cemp0t9eh5hxfx8jme9hrkzystrqmg8</code></td><td>所有玩法共用</td></tr>
-        <tr><td>累计已销毁</td><td><b>48,000 TKCC</b></td><td><code>total_burned = 48000000000</code></td></tr>
-        <tr><td>累计已进运营</td><td><b>48,000 TKCC</b></td><td><code>total_treasury = 48000000000</code></td></tr>
+        <tr><td>累计已销毁</td><td><b>142,000 TKCC</b></td><td><code>total_burned = 142000000000</code></td></tr>
+        <tr><td>累计已进运营</td><td><b>142,000 TKCC</b></td><td><code>total_treasury = 142000000000</code></td></tr>
         <tr><td>运营地址</td><td><code>paxi194kpjqhyz7re2g749lc2030cgeg4sql5ldvyem</code></td><td>唯一收款地址</td></tr>
         <tr><td>销毁地址</td><td>无</td><td>直接减少总供应，不转入地址</td></tr>
       </table>
@@ -758,6 +771,142 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
       <p style="margin-top:12px;color:#8a7a6a;font-size:12px">以上数值来自链上合约参数与真实交易事件核对，如管理员调整参数，以链上最新值为准。</p>
 
     </div>
+
+    <!-- ========== English ========== -->
+    <div class="eco-body lang-en">
+
+      <h3>1. Before you start: how money moves</h3>
+      <ul>
+        <li>All draws, upgrades, battles and bets are paid from your <b>in-contract balance</b>, not your wallet. Flow: wallet TKCC → <code>approve</code> → <code>deposit</code> → in-contract balance.</li>
+        <li>That's why your wallet shows no TKCC change when you bet — this is <b>normal</b>, the fee was still charged.</li>
+        <li>Winnings land in your <b>in-contract balance</b> first. You must tap "Claim" to move them back to your wallet.</li>
+        <li>A claim transaction also emits a <b>burn</b> entry. <b>The burn amount is NOT what you receive</b> — trust the claim toast / the <code>transfer</code> event instead.</li>
+        <li><b>Native PAXI is never burned</b>; only TKCC is. Burning reduces total supply directly and <b>sends to no address</b>.</li>
+        <li>Treasury address (the only one): <code>paxi194kpjqhyz7re2g749lc2030cgeg4sql5ldvyem</code></li>
+        <li>On-chain precision is 6 decimals: 1 TKCC = 1,000,000.</li>
+        <li>Seamless mode: a session address signs for you; gas is still paid by your main wallet via feegrant, ~0.03 PAXI per tx.</li>
+      </ul>
+
+      <h3>2. Three Kingdoms — cost and split per mode</h3>
+      <p><b>Important: the global 5% / 5% rule does NOT apply to Three Kingdoms.</b> Its ratios are hardcoded in its own parameters and differ a lot by mode.</p>
+
+      <h4>2.1 Card draws</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Mode</th><th>You pay</th><th>To treasury</th><th>Burn</th><th>You get</th></tr>
+        <tr><td>Single draw</td><td>10 PAXI + 200,000 TKCC</td><td>10 PAXI + <b>120,000 TKCC</b></td><td><b>80,000 TKCC</b></td><td>1 card</td></tr>
+        <tr><td>Triple draw</td><td>30 PAXI + 500,000 TKCC</td><td>30 PAXI + <b>300,000 TKCC</b></td><td><b>200,000 TKCC</b></td><td>3 cards</td></tr>
+      </table>
+      </div>
+      <p>The TKCC part is always split <b>60% treasury + 40% burn</b>; the PAXI part goes fully to treasury and is never burned.</p>
+
+      <h4>2.2 Upgrading (star-up / level-up / decompose)</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Action</th><th>Cost</th><th>Effect</th><th>Burn</th><th>House</th></tr>
+        <tr><td>Star-up<br>(pay TKCC)</td><td>50,000 / 150,000 / 400,000 / 1,000,000 TKCC<br>(by current star)</td><td>+1 star; ATK +5 / 12 / 25 / 50, DEF +3 / 8 / 18 / 35</td><td><b>50% of cost</b></td><td><b>50% of cost</b></td></tr>
+        <tr><td>Star-up<br>(pay fragments)</td><td>50 / 100 / 200 / 500 fragments<br>(by rarity)</td><td>+1 star, same stat gains</td><td>0</td><td>0</td></tr>
+        <tr><td>Level-up</td><td>50 / 100 / 200 / 500 fragments<br>(by rarity)</td><td>ATK +3, DEF +2, max level 10</td><td>0</td><td>0</td></tr>
+        <tr><td>Decompose</td><td>Destroy 1 card</td><td>Gain 5 / 10 / 20 / 50 fragments<br>(by rarity)</td><td>Card is burned, no TKCC involved</td><td>0</td></tr>
+      </table>
+      </div>
+      <p><b>Note: level-up costs no TKCC</b>, only fragments. Only star-up can be paid with TKCC or fragments.</p>
+
+      <h4>2.3 AI battle (difficulty 1–5)</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Difficulty</th><th>You pay</th><th>Win payout</th><th>Burn</th><th>House</th></tr>
+        <tr><td>1</td><td>10,000 TKCC</td><td><b>1,000 TKCC</b></td><td>1,000</td><td>9,000</td></tr>
+        <tr><td>2</td><td>15,000 TKCC</td><td><b>1,000 TKCC</b></td><td>1,500</td><td>13,500</td></tr>
+        <tr><td>3</td><td>20,000 TKCC</td><td><b>1,000 TKCC</b></td><td>2,000</td><td>18,000</td></tr>
+        <tr><td>4</td><td>25,000 TKCC</td><td><b>1,000 TKCC</b></td><td>2,500</td><td>22,500</td></tr>
+        <tr><td>5</td><td>30,000 TKCC</td><td><b>1,000 TKCC</b></td><td>3,000</td><td>27,000</td></tr>
+      </table>
+      </div>
+      <p>The entry fee is split <b>10% burn + 90% house</b>. Winnings must be claimed to return to your wallet; max 20 battles per account per day.</p>
+      <p style="color:#c8a06a">⚠️ The current on-chain payout is set to a flat <b>1,000 TKCC</b> (below the entry fee). This is a temporary setting and may change at any time — <b>always refer to the latest on-chain values</b>.</p>
+
+      <h4>2.4 PVP &amp; Battle Royale</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Mode</th><th>You pay</th><th>Win payout</th><th>Burn</th><th>House</th></tr>
+        <tr><td>PVP</td><td>60,000 TKCC each</td><td>Winner gets <b>120,000 TKCC</b></td><td>0</td><td>0</td></tr>
+        <tr><td>Royale<br>(4 players)</td><td>60,000 TKCC each<br>pot 240,000</td><td>Winner gets <b>168,000 TKCC</b><br>(70% of pot)</td><td><b>36,000 TKCC</b><br>(15% of pot)</td><td><b>36,000 TKCC</b><br>(15% of pot)</td></tr>
+      </table>
+      </div>
+      <ul>
+        <li><b>PVP takes zero rake</b> — the loser's stake goes entirely to the winner; the contract keeps nothing.</li>
+        <li>Royale is split <b>70% winner / 15% burn / 15% house</b>, adding up to exactly 100%.</li>
+        <li>"House" means the money kept in the contract's <code>HOUSE_BANKROLL</code> (bankroll reserve) used to cover payouts across modes — <b>not treasury revenue</b>.</li>
+      </ul>
+
+      <h3>3. Guess the Number</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Item</th><th>Value</th></tr>
+        <tr><td>Bet range</td><td>10,000 ~ 100,000 TKCC per round</td></tr>
+        <tr><td>How it works</td><td>Guess one number from 1~10</td></tr>
+        <tr><td>Payout</td><td>bet × <b>8.10</b> (net profit 7.10×)</td></tr>
+        <tr><td>Hit chance</td><td>1 / 10 = 10%</td></tr>
+        <tr><td><b>Long-run RTP</b></td><td><b>81%</b> (house edge 19%)</td></tr>
+        <tr><td>Daily limit</td><td>Cumulative bet ≤ 5,000,000 TKCC and ≤ 500 rounds</td></tr>
+      </table>
+      </div>
+
+      <h4>How a loss is split (on 10,000)</h4>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Destination</th><th>Amount</th><th>Share</th></tr>
+        <tr><td>Burn</td><td>500 TKCC</td><td>5%</td></tr>
+        <tr><td>Treasury</td><td>500 TKCC</td><td>5%</td></tr>
+        <tr><td>House bankroll</td><td>9,000 TKCC</td><td>90%</td></tr>
+      </table>
+      </div>
+      <p><b>Calculated only on losing bets; wins are not charged.</b></p>
+
+      <h3>4. Dice</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Mode</th><th>Payout</th><th>Hit rate</th><th>RTP</th><th>Notes</th></tr>
+        <tr><td>Dice · Big/Small</td><td>bet × <b>1.74</b></td><td>48.61%</td><td>84.6%</td><td>Three dice; a triple (all same) wipes out both big and small</td></tr>
+        <tr><td>Dice · Specific</td><td>bet × <b>2.15</b></td><td>42.13%</td><td>90.6%</td><td>Pick 1~6; win if any die matches</td></tr>
+        <tr><td>Crazy Dice</td><td>bet × <b>5.21</b></td><td>16.67%</td><td>86.8%</td><td>Single die, pick the number</td></tr>
+      </table>
+      </div>
+      <p>Bet range is also 10,000 ~ 100,000 TKCC per round, daily cumulative ≤ 5,000,000 TKCC and ≤ 500 rounds.</p>
+      <p>Split is the same as Guess the Number: <b>on losses only</b>, <b>5% burn + 5% treasury + 90% house bankroll</b>; wins are not charged.</p>
+
+      <h3>5. Global cumulative data (on-chain snapshot)</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Item</th><th>Value</th><th>Notes</th></tr>
+        <tr><td>Game contract</td><td><code>paxi1n6ykwpzl5aandw0233xq42m79u8cemp0t9eh5hxfx8jme9hrkzystrqmg8</code></td><td>Shared by all modes</td></tr>
+        <tr><td>Total burned</td><td><b>142,000 TKCC</b></td><td><code>total_burned = 142000000000</code></td></tr>
+        <tr><td>Total to treasury</td><td><b>142,000 TKCC</b></td><td><code>total_treasury = 142000000000</code></td></tr>
+        <tr><td>Treasury address</td><td><code>paxi194kpjqhyz7re2g749lc2030cgeg4sql5ldvyem</code></td><td>The only receiving address</td></tr>
+        <tr><td>Burn address</td><td>None</td><td>Reduces total supply directly, sends to no address</td></tr>
+      </table>
+      </div>
+      <p>TKCC burned each round permanently leaves circulation; total supply keeps shrinking, creating deflation.</p>
+
+      <h3>6. One-minute cheat sheet (the part people get wrong)</h3>
+      <div class="eco-scroll">
+      <table class="eco-tb">
+        <tr><th>Mode</th><th>Burn</th><th>Treasury</th><th>House</th><th>Note</th></tr>
+        <tr><td>3K · Draws</td><td>40%</td><td>60%</td><td>0</td><td>Not 5% / 5%</td></tr>
+        <tr><td>3K · AI battle</td><td>10% of fee</td><td>0</td><td>90% of fee</td><td>Payout must be claimed</td></tr>
+        <tr><td>3K · Star-up</td><td>50%</td><td>0</td><td>50%</td><td>Fragment star-up is free</td></tr>
+        <tr><td>3K · Level-up</td><td>0</td><td>0</td><td>0</td><td>Fragments only, no TKCC</td></tr>
+        <tr><td>3K · PVP</td><td>0</td><td>0</td><td>0</td><td>Zero rake</td></tr>
+        <tr><td>3K · Royale</td><td>15% of pot</td><td>0</td><td>15% of pot</td><td>Winner gets 70%</td></tr>
+        <tr><td>Guess / Dice</td><td>5% of loss</td><td>5% of loss</td><td>90% of loss</td><td>Wins not charged</td></tr>
+      </table>
+      </div>
+
+      <p style="margin-top:12px;color:#8a7a6a;font-size:12px">These figures come from on-chain contract parameters and verified transaction events. If the admin changes parameters, the latest on-chain values prevail.</p>
+
+    </div>
+
   </div>
 </div>
 
@@ -765,7 +914,7 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 <div class="modal-overlay" id="codexModal">
   <div class="modal">
     <button class="close-btn" onclick="closeCodex()">✕</button>
-    <h2>📚 卡牌图鉴</h2>
+    <h2 data-i18n="codex_title">📚 卡牌图鉴</h2>
     <div class="codex-progress" id="codexProgress"></div>
     <div class="codex-grid" id="codexContent"></div>
   </div>
@@ -781,23 +930,23 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
       <div class="card-sub-detail" id="detailSub">—</div>
     </div>
     <div class="info-grid">
-      <div class="ig"><span class="label">稀有度</span><span class="value" id="detailRarity">—</span></div>
-      <div class="ig"><span class="label">阵营</span><span class="value" id="detailIdentity">—</span></div>
-      <div class="ig"><span class="label">攻击</span><span class="value" id="detailAtk">—</span></div>
-      <div class="ig"><span class="label">防御</span><span class="value" id="detailDef">—</span></div>
-      <div class="ig"><span class="label">共计</span><span class="value" id="detailPower">—</span></div>
-      <div class="ig"><span class="label">⭐ 星级</span><span class="value" id="detailStar">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_rarity">稀有度</span><span class="value" id="detailRarity">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_faction">阵营</span><span class="value" id="detailIdentity">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_atk">攻击</span><span class="value" id="detailAtk">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_def">防御</span><span class="value" id="detailDef">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_total">共计</span><span class="value" id="detailPower">—</span></div>
+      <div class="ig"><span class="label" data-i18n="detail_star">⭐ 星级</span><span class="value" id="detailStar">—</span></div>
     </div>
     <div class="card-desc" id="detailDesc"></div>
     <div class="star-actions">
-      <button class="btn btn-gold" onclick="detailStarUp()">⭐ 升1星</button>
-      <button class="btn btn-gold" onclick="detailStarUpFrag()">✨ 碎片升星</button>
-      <button class="btn btn-success" onclick="detailUpgrade()">💠 升级</button>
-      <button class="btn btn-danger" onclick="detailDecompose()">🔥 分解</button>
-      <button class="btn btn-ghost" onclick="closeCardDetail()">关闭</button>
+      <button class="btn btn-gold" onclick="detailStarUp()" data-i18n="btn_star_up">⭐ 升1星</button>
+      <button class="btn btn-gold" onclick="detailStarUpFrag()" data-i18n="btn_star_frag">✨ 碎片升星</button>
+      <button class="btn btn-success" onclick="detailUpgrade()" data-i18n="btn_level_up">💠 升级</button>
+      <button class="btn btn-danger" onclick="detailDecompose()" data-i18n="btn_decompose">🔥 分解</button>
+      <button class="btn btn-ghost" onclick="closeCardDetail()" data-i18n="btn_close">关闭</button>
     </div>
     <div id="modalLoading" class="hidden" style="text-align:center;margin-top:8px;">
-      <span style="display:inline-block;width:14px;height:14px;border:2px solid #888;border-top-color:#b8860b;border-radius:50%;animation:spin .6s linear infinite;"></span> 处理中...
+      <span style="display:inline-block;width:14px;height:14px;border:2px solid #888;border-top-color:#b8860b;border-radius:50%;animation:spin .6s linear infinite;"></span> <span data-i18n="modal_processing">处理中...</span>
     </div>
   </div>
 </div>
@@ -806,8 +955,8 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
      第三方 mainnet-api.paxinet.io 的 2.6MB 脚本——手机钱包内置浏览器常因网络/超时
      加载失败，导致 "PaxiCosmJS is not defined" 整个应用瘫痪。
      该文件已随仓库部署（paxi-cosmjs.umd.js）。若仍加载失败，下方 onerror 会给出明确提示。 -->
-<script src="paxi-cosmjs.umd.js?v=20260921-3" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
-<script src="compat.js?v=20260921-3"></script>
+<script src="paxi-cosmjs.umd.js?v=20260922-1" onerror="window.__PaxiCosmJSLoadFailed=true;document.getElementById('bootErr')&&(document.getElementById('bootErr').style.display='block')"></script>
+<script src="compat.js?v=20260922-1"></script>
 <script>
   // 🔴 守卫：若 UMD 没加载成功，立刻给出可读提示，避免后续出现一堆 "PaxiCosmJS is not defined"
   if (typeof window.PaxiCosmJS === 'undefined') {
@@ -847,16 +996,16 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
   window.nobleRipemd160 = ripemd160;
   window.dispatchEvent(new Event('noble-ready'));
 </script>
-<script>window.HUB_BUILD = '20260921-3';</script>
-<script src="shared.js?v=20260921-3"></script>      <!-- 网络/交易基础 -->
-<script src="session.js?v=20260921-3"></script>     <!-- 无感签名（依赖 shared） -->
-<script src="games.js?v=20260921-3"></script>       <!-- 通用引擎 + 游戏注册表 -->
-<script src="sanguo.js?v=20260921-3"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
+<script>window.HUB_BUILD = '20260922-1';</script>
+<script src="shared.js?v=20260922-1"></script>      <!-- 网络/交易基础 -->
+<script src="session.js?v=20260922-1"></script>     <!-- 无感签名（依赖 shared） -->
+<script src="games.js?v=20260922-1"></script>       <!-- 通用引擎 + 游戏注册表 -->
+<script src="sanguo.js?v=20260922-1"></script>      <!-- 三国：依赖 session 的 Session.buildMessage -->
 <!-- 🟠 修复：crazydice.js 此前只有注释没有 <script> 标签，疯狂骰子从未注册进
      GAME_REGISTRY → 大厅里该游戏点不进去。依赖 games.js / shared.js，
      必须在 app.js 之前加载。 -->
-<script src="crazydice.js?v=20260921-3"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
-<script src="app.js?v=20260921-3"></script>         <!-- 入口/UI，必须最后加载 -->
+<script src="crazydice.js?v=20260922-1"></script>   <!-- 疯狂骰子：依赖 games.js 的 diceSpecificMult -->
+<script src="app.js?v=20260922-1"></script>         <!-- 入口/UI，必须最后加载 -->
 <script>console.log('[PaxiGameHub] build =', window.HUB_BUILD);</script>
 
 <!-- 🟢 三国·卡牌：连接钱包后同步统计（仅当三国页已打开时刷新）；底部 Tab 高亮同步。

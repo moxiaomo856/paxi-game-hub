@@ -242,9 +242,77 @@
       // ---- 迁移上限说明（gas 容量约束）----
       'migrate_limit_note': '⚠️ 单次最多迁移 30 张卡（gas 容量上限）。老合约卡牌超过 30 张的，请先在老合约里把多余的卡分解掉，再回来迁移。每个钱包只有一次迁移机会，但迁移失败不会消耗这次机会。',
       'migrate_over_limit': '老合约有 {n} 张卡，超过单次上限 {max} 张。请先在老合约分解掉 {over} 张后再迁移（分解后本提示会自动刷新）。',
-      'migrate_gas_hint': '本次按 {n} 张卡设置 gas 上限 {gas}（未用完会原路退还）。',
+      'migrate_gas_hint': '本次按 {n} 张卡设置 gas 上限 {gas}（手续费按声明上限全额扣，未用完不退还）。',
       'migrate_no_preview': '（未能读取老合约卡数，已按 {max} 张卡的上限准备 gas）',
       'migrate_blocked': '老合约卡数超限，请先分解后再迁移',
+      'migrate_old_summary': '老合约：{n} 张卡 · 碎片(普/稀/史/传) {fg}',
+      'migrate_ok_detail': '✅ {msg}：{minted} 张卡，{frags} 碎片{skipped}',
+      'migrate_ok_skip': '（跳过 {n}）',
+
+      // ---- 统计卡 / 图鉴 ----
+      'sg_stat_wins': '胜场', 'sg_stat_cards': '总卡牌', 'sg_stat_battles': '总对战', 'sg_stat_frag': '碎片',
+      'codex_open': '📚 卡牌图鉴（{n} 将）',
+      'codex_progress': '收集进度：{own} / {total}（点击卡牌查看详情）',
+      'codex_not_owned': '未拥有',
+
+      // ---- 卡牌详情 ----
+      'detail_title_wrap': '「{t}」',
+      'detail_stats': '{identity}{title}　攻击 {atk} · 防御 {def} · 战力 {pow}',
+
+      // ---- AI 出战选择 ----
+      'ai_my_cards': '我的卡牌',
+      'ai_pick_title': '🃏 选择出战卡牌',
+      'ai_pick_desc': '最多选 3 张，顺序即出牌顺序（第 1 张先出）。不选则沿用你已有的出战顺序。',
+      'ai_need_three_btn': '需至少 3 张卡牌',
+      'ai_need_three_hint': '❌ AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。',
+      'ai_need_three_msg': 'AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。',
+      'order_saved': '出牌顺序：{names}',
+
+      // ---- 对战竞技场 ----
+      'battle_result_title': '⚔️ 对战结果',
+      'battle_win': '🏆 胜利！', 'battle_lose': '💀 失败', 'battle_draw': '🤝 平局',
+      'battle_you': '你', 'battle_opp': '对手',
+      'battle_deployed': '（出战）',
+      'battle_reward': '奖励：{amt} TKCC',
+      'battle_rounds': '三局 {n} 胜',
+      'battle_challenger': '挑战方', 'battle_defender': '应战方',
+      'battle_ai_general': 'AI 战将', 'battle_ai_diff': 'AI 难度 {n}',
+
+      // ---- 抽卡余额不足 ----
+      'draw_mode_single': '单抽', 'draw_mode_pack3': '三连抽',
+      'draw_paxi_lack': '合约内 PAXI 不足：{mode}需要 {need} PAXI，当前只有 {have} PAXI，请先充值至少 {lack} PAXI',
+
+      // ---- 升星 / 升级 / 分解 ----
+      'err_card_notfound': '找不到该卡牌，请刷新「我的卡」后重试',
+      'err_max_star': '⭐ 该卡已满星（5★），无法继续升星',
+      'err_bal_query': '查询合约内余额失败，请稍后重试',
+      'err_tkcc_star': '合约内 TKCC 不足：{from}★→{to}★ 需要 {need} TKCC，当前 {have} TKCC，请先在「钱包」充值',
+      'confirm_star_up': '升星 {from}★ → {to}★\n\n费用：{fee} TKCC（从合约内余额扣）\n其中销毁 {half} + 资金池 {half}\n\n确定 = 升星，取消 = 中止',
+      'err_frag_star': '碎片不足：碎片升星需要 {need} 个{rarity}碎片，当前 {have} 个（碎片升星不花 TKCC）',
+      'confirm_star_frag': '碎片升星 {from}★ → {to}★\n\n消耗 {need} 个{rarity}碎片（不花 TKCC、不销毁）\n当前拥有 {have} 个\n\n确定 = 升星，取消 = 中止',
+      'err_max_level': '💠 该卡已满级（Lv10），无法继续升级',
+      'err_frag_level': '碎片不足：升级 Lv{from}→Lv{to} 需要 {need} 个{rarity}碎片，当前 {have} 个',
+      'err_sig_format': '会话签名异常（签名为空）——通常是浏览器缓存了旧版脚本，请强制刷新页面（或清除缓存）后重试',
+      'confirm_level_up': '升级 Lv{from} → Lv{to}\n\n消耗 {need} 个{rarity}碎片\n收益：攻击 +3 · 防御 +2（战力 +5）\n当前拥有 {have} 个\n\n确定 = 升级，取消 = 中止',
+      'confirm_decompose': '⚠️ 分解后该卡将永久消失！\n\n「{name}」{star}★ Lv{lv}\n仅返还 {back} 个{rarity}碎片\n（不退还已投入的星级/等级/费用，养成后分解=白烧钱）\n\n确定 = 分解，取消 = 保留',
+
+      // ---- 管理员对账页 ----
+      'ledger_loading': '查询中…',
+      'ledger_scanning': '⏳ 正在逐笔解析链上抽卡事件…',
+      'ledger_rpc_limited': '⚠️ 逐笔统计需访问链节点(RPC)，当前环境受限（如在手机钱包内打开）。请在桌面浏览器打开本页以查看逐笔收到。',
+      'ledger_scan_ok': '✅ 已逐笔解析全部抽卡交易（链上为准）。',
+      'ledger_scan_fail': '⚠️ 逐笔解析不可用，下列“收到”列为 — 。',
+      'ledger_th_addr': '抽水地址', 'ledger_th_count': '笔数', 'ledger_th_paxi': '收到 PAXI', 'ledger_th_tkcc': '收到 TKCC',
+      'ledger_total': '合计',
+      'ledger_total_burn': '游戏合约累计销毁 TKCC',
+      'ledger_burn_desc': '销毁为真实 burn（token 永久消失），不进任何钱包；与每笔抽卡 TKCC 的 40% 一致。',
+      'ledger_wallet_note': '说明：钱包/Ping.pub 对 PRC-20 的 wasm 转账事件解析有误（常把 10 PAXI 错标成 10 TKCC、漏显 12 万 TKCC）。本页直接读链上事件，数字与链一致。',
+      'ledger_done': '✅ 完成，共 {n} 个抽水地址',
+      'ledger_admin_only': '⛔ 此页面仅管理员可见。',
+      'ledger_title': '📊 收入对账（管理员）',
+      'ledger_desc': '逐笔解析 {n} 个抽水地址的抽卡 wasm 事件，显示真实收到的 PAXI + TKCC（链上为准，不受钱包显示影响）。含游戏合约累计销毁。',
+      'ledger_refresh': '🔄 刷新对账',
+      'ledger_hint_click': '点击「刷新对账」开始加载…',
     },
     en: {
       'sg_title': '🀄 Three Kingdoms · Cards',
@@ -395,9 +463,77 @@
       // ---- Migration cap (gas budget) ----
       'migrate_limit_note': '⚠️ Max 30 cards per migration (gas budget cap). If you hold more than 30 cards on the old contract, decompose the extra ones there first, then come back. One migration per wallet — a failed migration does not use up that chance.',
       'migrate_over_limit': 'You have {n} cards on the old contract, over the {max}-card limit. Please decompose {over} of them first (this hint refreshes automatically afterwards).',
-      'migrate_gas_hint': 'Gas limit set to {gas} for {n} cards (unused gas is refunded).',
+      'migrate_gas_hint': 'Gas limit set to {gas} for {n} cards (the declared fee is charged in full; unused gas is NOT refunded).',
       'migrate_no_preview': '(Could not read old-contract card count; gas prepared for the {max}-card cap.)',
       'migrate_blocked': 'Card count over the limit — decompose first, then migrate',
+      'migrate_old_summary': 'Old contract: {n} cards · fragments (C/R/E/L) {fg}',
+      'migrate_ok_detail': '✅ {msg}: {minted} cards, {frags} fragments{skipped}',
+      'migrate_ok_skip': ' (skipped {n})',
+
+      // ---- stat cards / codex ----
+      'sg_stat_wins': 'Wins', 'sg_stat_cards': 'Cards', 'sg_stat_battles': 'Battles', 'sg_stat_frag': 'Fragments',
+      'codex_open': '📚 Card Codex ({n} generals)',
+      'codex_progress': 'Collecting: {own} / {total} (tap a card for details)',
+      'codex_not_owned': 'Not owned',
+
+      // ---- card detail ----
+      'detail_title_wrap': '"{t}"',
+      'detail_stats': '{identity}{title}  ATK {atk} · DEF {def} · Power {pow}',
+
+      // ---- AI lineup picker ----
+      'ai_my_cards': 'My Cards',
+      'ai_pick_title': '🃏 Pick battle cards',
+      'ai_pick_desc': 'Pick up to 3 cards; the order is the play order (first card goes first). Leave empty to keep your current lineup.',
+      'ai_need_three_btn': 'Need at least 3 cards',
+      'ai_need_three_hint': '❌ AI battle needs at least 3 cards. Draw cards first, then come back.',
+      'ai_need_three_msg': 'AI battle needs at least 3 cards. Draw cards first, then come back.',
+      'order_saved': 'Play order: {names}',
+
+      // ---- battle arena ----
+      'battle_result_title': '⚔️ Battle Result',
+      'battle_win': '🏆 Victory!', 'battle_lose': '💀 Defeat', 'battle_draw': '🤝 Draw',
+      'battle_you': 'You', 'battle_opp': 'Opponent',
+      'battle_deployed': ' (deployed)',
+      'battle_reward': 'Reward: {amt} TKCC',
+      'battle_rounds': '{n} round wins',
+      'battle_challenger': 'Challenger', 'battle_defender': 'Defender',
+      'battle_ai_general': 'AI General', 'battle_ai_diff': 'AI Lv.{n}',
+
+      // ---- draw: insufficient PAXI ----
+      'draw_mode_single': 'Single draw', 'draw_mode_pack3': 'Triple draw',
+      'draw_paxi_lack': 'Insufficient in-contract PAXI: {mode} needs {need} PAXI, you have {have} PAXI. Deposit at least {lack} PAXI first.',
+
+      // ---- star-up / level-up / decompose ----
+      'err_card_notfound': 'Card not found. Refresh "My Cards" and retry.',
+      'err_max_star': '⭐ This card is already at max stars (5★).',
+      'err_bal_query': 'Failed to read in-contract balance. Please try again later.',
+      'err_tkcc_star': 'Insufficient in-contract TKCC: {from}★→{to}★ needs {need} TKCC, you have {have} TKCC. Deposit in "Wallet" first.',
+      'confirm_star_up': 'Star-up {from}★ → {to}★\n\nCost: {fee} TKCC (deducted from in-contract balance)\nof which burn {half} + bankroll {half}\n\nOK = star up, Cancel = abort',
+      'err_frag_star': 'Not enough fragments: fragment star-up needs {need} {rarity} fragments, you have {have} (no TKCC required).',
+      'confirm_star_frag': 'Fragment star-up {from}★ → {to}★\n\nConsumes {need} {rarity} fragments (no TKCC, no burn)\nYou have {have}\n\nOK = star up, Cancel = abort',
+      'err_max_level': '💠 This card is already at max level (Lv10).',
+      'err_frag_level': 'Not enough fragments: level-up Lv{from}→Lv{to} needs {need} {rarity} fragments, you have {have}.',
+      'err_sig_format': 'Session signature error (signature is empty) — usually the browser cached an old script. Hard-refresh the page (or clear cache) and retry.',
+      'confirm_level_up': 'Level-up Lv{from} → Lv{to}\n\nConsumes {need} {rarity} fragments\nGain: ATK +3 · DEF +2 (Power +5)\nYou have {have}\n\nOK = level up, Cancel = abort',
+      'confirm_decompose': '⚠️ Decomposing permanently destroys this card!\n\n"{name}" {star}★ Lv{lv}\nOnly {back} {rarity} fragments are returned\n(stars/levels/fees already invested are not refunded — decomposing an upgraded card wastes them)\n\nOK = decompose, Cancel = keep',
+
+      // ---- admin ledger page ----
+      'ledger_loading': 'Loading…',
+      'ledger_scanning': '⏳ Parsing on-chain draw events one by one…',
+      'ledger_rpc_limited': '⚠️ Per-tx stats need RPC access, which is restricted here (e.g. inside a mobile wallet). Open this page in a desktop browser to see per-tx receipts.',
+      'ledger_scan_ok': '✅ All draw transactions parsed per-tx (on-chain is authoritative).',
+      'ledger_scan_fail': '⚠️ Per-tx parsing unavailable; the "received" columns show — .',
+      'ledger_th_addr': 'Fee address', 'ledger_th_count': 'Txs', 'ledger_th_paxi': 'PAXI received', 'ledger_th_tkcc': 'TKCC received',
+      'ledger_total': 'Total',
+      'ledger_total_burn': 'Total TKCC burned by game contract',
+      'ledger_burn_desc': 'Burn is a real burn (tokens permanently destroyed), reaching no wallet; matches the 40% TKCC portion of each draw.',
+      'ledger_wallet_note': 'Note: wallets/Ping.pub mis-parse PRC-20 wasm transfer events (often labeling 10 PAXI as 10 TKCC, or hiding the 120,000 TKCC). This page reads on-chain events directly, so the numbers match the chain.',
+      'ledger_done': '✅ Done, {n} fee addresses',
+      'ledger_admin_only': '⛔ This page is admin-only.',
+      'ledger_title': '📊 Revenue reconciliation (admin)',
+      'ledger_desc': 'Parses draw wasm events per-tx across {n} fee addresses, showing the real PAXI + TKCC received (on-chain is authoritative, unaffected by wallet display). Includes cumulative burn of the game contract.',
+      'ledger_refresh': '🔄 Refresh',
+      'ledger_hint_click': 'Tap "Refresh" to start loading…',
     },
   };
   function t(k) {
@@ -563,7 +699,7 @@
       });
       const sig = await Session.sign(message);
       if (!sig || !/^[0-9a-f]{128}$/.test(sig)) {
-        throw new Error('会话签名异常（签名为空）——通常是浏览器缓存了旧版脚本，请强制刷新页面（或清除缓存）后重试');
+        throw new Error(t('err_sig_format'));
       }
       // ⚠️ 合约 ExecuteMsg 用 #[cw_serde] → 枚举变体按 snake_case 序列化
       //    (SanguoDraw → "sanguo_draw")。此前误用帕斯卡命名会被合约拒绝为 unknown variant。
@@ -704,17 +840,17 @@
       <div class="sg-page">
         <div class="back-bar" onclick="switchTab('home')">${t('back_home')}</div>
         <div class="sg-stats">
-          <div class="sg-stat"><span class="ic">🏆</span><span class="num" id="sgWin">—</span><span class="lb">胜场</span></div>
-          <div class="sg-stat"><span class="ic">🃏</span><span class="num" id="sgStatCards">0</span><span class="lb">总卡牌</span></div>
-          <div class="sg-stat"><span class="ic">⚔️</span><span class="num" id="sgBattle">—</span><span class="lb">总对战</span></div>
-          <div class="sg-stat"><span class="ic">🧩</span><span class="num" id="sgFrag" style="color:#ffd700">0</span><span class="lb">碎片</span></div>
+          <div class="sg-stat"><span class="ic">🏆</span><span class="num" id="sgWin">—</span><span class="lb">${t('sg_stat_wins')}</span></div>
+          <div class="sg-stat"><span class="ic">🃏</span><span class="num" id="sgStatCards">0</span><span class="lb">${t('sg_stat_cards')}</span></div>
+          <div class="sg-stat"><span class="ic">⚔️</span><span class="num" id="sgBattle">—</span><span class="lb">${t('sg_stat_battles')}</span></div>
+          <div class="sg-stat"><span class="ic">🧩</span><span class="num" id="sgFrag" style="color:#ffd700">0</span><span class="lb">${t('sg_stat_frag')}</span></div>
         </div>
         <div class="card">
           <div class="card-title">${t('sg_title')}</div>
           <div class="desc">${t('sg_subtitle')}</div>
         </div>
         <div class="card">
-          <button class="btn btn-gold" onclick="openCodex()" style="width:100%">📚 卡牌图鉴（${CARD_TEMPLATES.length} 将）</button>
+          <button class="btn btn-gold" onclick="openCodex()" style="width:100%">${tf('codex_open', { n: CARD_TEMPLATES.length })}</button>
         </div>
         <div id="sgTabs">
           ${SANGUO_TABS.filter((tb) => !tb.admin || isSgAdmin()).map((tb) => tabBtn(tb.id, t(tb.key))).join('')}
@@ -809,8 +945,8 @@
   async function loadLedger() {
     const body = $('sgLedgerBody');
     const hint = $('sgLedgerHint');
-    if (hint) hint.textContent = '查询中…';
-    if (body) body.innerHTML = '<div class="hint">⏳ 正在逐笔解析链上抽卡事件…</div>';
+    if (hint) hint.textContent = t('ledger_loading');
+    if (body) body.innerHTML = `<div class="hint">${t('ledger_scanning')}</div>`;
 
     const gameAddr = CONTRACTS.game;
     const tkccAddr = CONTRACTS.tkcc;
@@ -833,7 +969,7 @@
       }
       scanOk = true;
     } catch (e) {
-      if (hint) hint.textContent = '⚠️ 逐笔统计需访问链节点(RPC)，当前环境受限（如在手机钱包内打开）。请在桌面浏览器打开本页以查看逐笔收到。';
+      if (hint) hint.textContent = t('ledger_rpc_limited');
     }
 
     if (!body) return;
@@ -848,40 +984,40 @@
     }
     body.innerHTML = `
       <div class="card">
-        <div class="desc">${scanOk ? '✅ 已逐笔解析全部抽卡交易（链上为准）。' : '⚠️ 逐笔解析不可用，下列“收到”列为 — 。'}</div>
+        <div class="desc">${scanOk ? t('ledger_scan_ok') : t('ledger_scan_fail')}</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
           <thead><tr style="text-align:left;color:#ffd700">
-            <th>抽水地址</th><th style="text-align:center">笔数</th><th>收到 PAXI</th><th>收到 TKCC</th>
+            <th>${t('ledger_th_addr')}</th><th style="text-align:center">${t('ledger_th_count')}</th><th>${t('ledger_th_paxi')}</th><th>${t('ledger_th_tkcc')}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
           ${scanOk ? `<tfoot><tr style="font-weight:bold;border-top:1px solid #b8860b">
-            <td>合计</td><td></td>
+            <td>${t('ledger_total')}</td><td></td>
             <td>${fromRawUnits(sumP.toString())}</td>
             <td>${fromRawUnits(sumT.toString())}</td>
           </tr></tfoot>` : ''}
         </table>
       </div>
-      ${scanOk ? `<div class="card"><div class="kv"><span class="k">游戏合约累计销毁 TKCC</span><span class="v" style="color:#ff8c69">${fromRawUnits(burnTotal.toString())}</span></div>
-        <div class="desc">销毁为真实 burn（token 永久消失），不进任何钱包；与每笔抽卡 TKCC 的 40% 一致。</div></div>` : ''}
-      <div class="hint" style="margin-top:8px">说明：钱包/Ping.pub 对 PRC-20 的 wasm 转账事件解析有误（常把 10 PAXI 错标成 10 TKCC、漏显 12 万 TKCC）。本页直接读链上事件，数字与链一致。</div>`;
-    if (hint && scanOk) hint.textContent = `✅ 完成，共 ${taps.length} 个抽水地址`;
+      ${scanOk ? `<div class="card"><div class="kv"><span class="k">${t('ledger_total_burn')}</span><span class="v" style="color:#ff8c69">${fromRawUnits(burnTotal.toString())}</span></div>
+        <div class="desc">${t('ledger_burn_desc')}</div></div>` : ''}
+      <div class="hint" style="margin-top:8px">${t('ledger_wallet_note')}</div>`;
+    if (hint && scanOk) hint.textContent = tf('ledger_done', { n: taps.length });
   }
 
   async function renderLedger(body) {
     if (!isSgAdmin()) {
-      body.innerHTML = '<div class="hint err">⛔ 此页面仅管理员可见。</div>';
+      body.innerHTML = `<div class="hint err">${t('ledger_admin_only')}</div>`;
       return;
     }
     body.innerHTML = `
       <div class="card">
-        <div class="card-title">📊 收入对账（管理员）</div>
-        <div class="desc">逐笔解析 11 个抽水地址的抽卡 wasm 事件，显示真实收到的 PAXI + TKCC（链上为准，不受钱包显示影响）。含游戏合约累计销毁。</div>
+        <div class="card-title">${t('ledger_title')}</div>
+        <div class="desc">${tf('ledger_desc', { n: 11 })}</div>
       </div>
       <div class="card">
-        <button class="btn btn-primary" id="sgLedgerRefresh">🔄 刷新对账</button>
+        <button class="btn btn-primary" id="sgLedgerRefresh">${t('ledger_refresh')}</button>
         <span id="sgLedgerHint" class="hint"></span>
       </div>
-      <div id="sgLedgerBody">点击「刷新对账」开始加载…</div>`;
+      <div id="sgLedgerBody">${t('ledger_hint_click')}</div>`;
     const btn = $('sgLedgerRefresh');
     if (btn) btn.onclick = () => loadLedger();
     loadLedger();
@@ -974,12 +1110,12 @@
         const have = (Number(havePaxi) / 1e6).toFixed(2);
         const lack = ((Number(paxiRaw) - Number(havePaxi)) / 1e6).toFixed(2);
         showToast(
-          `合约内 PAXI 不足：${pack3 ? '三连抽' : '单抽'}需要 ${need} PAXI，当前只有 ${have} PAXI，请先充值至少 ${lack} PAXI`,
+          tf('draw_paxi_lack', { mode: t(pack3 ? 'draw_mode_pack3' : 'draw_mode_single'), need, have, lack }),
           'error',
         );
         const log = $('sgDrawLog');
         if (log) {
-          log.innerHTML = `<div class="hint err">❌ 合约内 PAXI 不足：需要 ${need} PAXI，当前 ${have} PAXI，请先充值 ${lack} PAXI</div>`;
+          log.innerHTML = `<div class="hint err">❌ ${tf('draw_paxi_lack', { mode: t(pack3 ? 'draw_mode_pack3' : 'draw_mode_single'), need, have, lack })}</div>`;
         }
         return;
       }
@@ -1153,7 +1289,7 @@
         ? `${frags.common || 0}/${frags.rare || 0}/${frags.epic || 0}/${frags.legend || 0}`
         : '0/0/0/0';
       oldMigrateCardCount = n;
-      log.innerHTML = `<div class="hint" style="margin-top:6px">老合约：${esc(n)} 张卡 · 碎片(普/稀/史/传) ${esc(fg)}</div>`;
+      log.innerHTML = `<div class="hint" style="margin-top:6px">${tf('migrate_old_summary', { n: esc(n), fg: esc(fg) })}</div>`;
       if (n === 0 && fg === '0/0/0/0') {
         btn.disabled = true;
         log.innerHTML += `<div class="hint" style="margin-top:4px">${t('migrate_none')}</div>`;
@@ -1211,7 +1347,7 @@
       const skipped = (a.cards_skipped && a.cards_skipped[0]) || '0';
       const frags = (a.fragments_migrated && a.fragments_migrated[0]) || '0';
       migrationDone = true;
-      if (log) log.innerHTML = `<div class="hint ok" style="margin-top:6px">✅ ${t('migrate_ok')}：${minted} 张卡，${frags} 碎片${Number(skipped) ? `（跳过 ${skipped}）` : ''}</div>`;
+      if (log) log.innerHTML = `<div class="hint ok" style="margin-top:6px">${tf('migrate_ok_detail', { msg: t('migrate_ok'), minted, frags, skipped: Number(skipped) ? tf('migrate_ok_skip', { n: skipped }) : '' })}</div>`;
       const b = $('sgMigrateBtn'); if (b) b.disabled = true;
       await loadSanguoCards();
       await refreshBalances();
@@ -1345,11 +1481,11 @@
         <div class="kv"><span class="k">${t('ai_today')}</span><span class="v" id="sgAiToday">—</span></div>
         <div class="kv"><span class="k">${t('ai_limit')}</span><span class="v" id="sgAiLimit">—</span></div>
         <div class="kv"><span class="k">${t('win_rate')}</span><span class="v" id="sgAiRate">—</span></div>
-        <div class="kv"><span class="k">我的卡牌</span><span class="v" id="sgAiCards">${cardCount} / 3</span></div>
+        <div class="kv"><span class="k">${t('ai_my_cards')}</span><span class="v" id="sgAiCards">${cardCount} / 3</span></div>
       </div>
       <div class="card">
-        <div class="card-title">🃏 选择出战卡牌</div>
-        <div class="desc">最多选 3 张，顺序即出牌顺序（第 1 张先出）。不选则沿用你已有的出战顺序。</div>
+        <div class="card-title">${t('ai_pick_title')}</div>
+        <div class="desc">${t('ai_pick_desc')}</div>
         <div id="sgAiPick" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;margin-top:8px"></div>
       </div>
       <div class="card">
@@ -1362,8 +1498,8 @@
             return `<option value="${d}">${t('ai_diff')} ${d} · ${t('ai_fee')} ${fee} · ${t('ai_reward')} ${reward}</option>`;
           }).join('')}
         </select>
-        <button class="btn btn-primary" id="sgAiGo" style="margin-top:10px;width:100%" ${enoughCards ? '' : 'disabled'}>${enoughCards ? t('ai_title') : '需至少 3 张卡牌'}</button>
-        ${enoughCards ? '' : '<div class="hint err" style="margin-top:8px">❌ AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。</div>'}
+        <button class="btn btn-primary" id="sgAiGo" style="margin-top:10px;width:100%" ${enoughCards ? '' : 'disabled'}>${enoughCards ? t('ai_title') : t('ai_need_three_btn')}</button>
+        ${enoughCards ? '' : `<div class="hint err" style="margin-top:8px">${t('ai_need_three_hint')}</div>`}
       </div>
       <div id="sgAiLog"></div>`;
     if (state.wallet) {
@@ -1414,7 +1550,7 @@
     if (!userCards || userCards.length < 3) {
       try { await loadSanguoCards(); } catch (e) {}
       if (!userCards || userCards.length < 3) {
-        const msg = 'AI 对战需要至少 3 张卡牌，请先去「抽卡」获得卡牌后再来挑战。';
+        const msg = t('ai_need_three_msg');
         const logEl = $('sgAiLog');
         if (logEl) logEl.innerHTML = `<div class="hint err">❌ ${esc(msg)}</div>`;
         showToast(msg, 'error');
@@ -1579,7 +1715,7 @@
     try {
       await sanguoExec('SanguoSetBattleOrder', { order: sanguoPicked.slice() }, { action: 'set_battle_order', spend: 0 });
       const names = sanguoPicked.map((id) => { const c = userCards.find((x) => x.card_id === id); return c ? c.name : id; });
-      showToast(`${t('ok_short')} · 出牌顺序：${names.join(' → ')}`, 'success');
+      showToast(`${t('ok_short')} · ${tf('order_saved', { names: names.join(' → ') })}`, 'success');
       renderSanguoTab();
     } catch (e) { showToast(t('fail_prefix') + (e.message || e), 'error'); }
     finally { hideBusy(); }
@@ -1618,27 +1754,27 @@
   async function doStarUp(cardId, useFragments) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     const card = userCards.find((c) => c.card_id === cardId);
-    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    if (!card) { showToast(t('err_card_notfound'), 'error'); return; }
     const star = card.star || 1;
-    if (star >= 5) { showToast('⭐ 该卡已满星（5★），无法继续升星', 'error'); return; }
+    if (star >= 5) { showToast(t('err_max_star'), 'error'); return; }
     const fee = STAR_UP_FEES[star - 1];
     if (!useFragments) {
       const bal = await sgInContractTkcc();
-      if (bal === null) { showToast('查询合约内余额失败，请稍后重试', 'error'); return; }
+      if (bal === null) { showToast(t('err_bal_query'), 'error'); return; }
       if (bal < BigInt(fee) * 1000000n) {
-        showToast(`合约内 TKCC 不足：${star}★→${star + 1}★ 需要 ${fee.toLocaleString()} TKCC，当前 ${Math.floor(Number(bal) / 1e6).toLocaleString()} TKCC，请先在「钱包」充值`, 'error');
+        showToast(tf('err_tkcc_star', { from: star, to: star + 1, need: fee.toLocaleString(), have: Math.floor(Number(bal) / 1e6).toLocaleString() }), 'error');
         return;
       }
       const half = fee / 2;
-      if (!confirm(`升星 ${star}★ → ${star + 1}★\n\n费用：${fee.toLocaleString()} TKCC（从合约内余额扣）\n其中销毁 ${half.toLocaleString()} + 资金池 ${half.toLocaleString()}\n\n确定 = 升星，取消 = 中止`)) return;
+      if (!confirm(tf('confirm_star_up', { from: star, to: star + 1, fee: fee.toLocaleString(), half: half.toLocaleString() }))) return;
     } else {
       const fragNeed = STAR_UP_FRAG_COST[card.rarity] || 50; // 合约按稀有度固定 50/100/200/500，与星级无关
       const have = await sgFragOf(card.rarity);
       if (have < fragNeed) {
-        showToast(`碎片不足：碎片升星需要 ${fragNeed} 个${rarityLabel(card.rarity)}碎片，当前 ${have} 个（碎片升星不花 TKCC）`, 'error');
+        showToast(tf('err_frag_star', { need: fragNeed, rarity: rarityLabel(card.rarity), have }), 'error');
         return;
       }
-      if (!confirm(`碎片升星 ${star}★ → ${star + 1}★\n\n消耗 ${fragNeed} 个${rarityLabel(card.rarity)}碎片（不花 TKCC、不销毁）\n当前拥有 ${have} 个\n\n确定 = 升星，取消 = 中止`)) return;
+      if (!confirm(tf('confirm_star_frag', { from: star, to: star + 1, need: fragNeed, rarity: rarityLabel(card.rarity), have }))) return;
     }
     showBusy(t('doing'));
     try {
@@ -1657,16 +1793,16 @@
   async function doUpgrade(cardId) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     const card = userCards.find((c) => c.card_id === cardId);
-    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    if (!card) { showToast(t('err_card_notfound'), 'error'); return; }
     const lv = card.level || 0;
-    if (lv >= 10) { showToast('💠 该卡已满级（Lv10），无法继续升级', 'error'); return; }
+    if (lv >= 10) { showToast(t('err_max_level'), 'error'); return; }
     const perLv = UPGRADE_FRAG_PER_LEVEL[card.rarity] || 50;
     const have = await sgFragOf(card.rarity);
     if (have < perLv) {
-      showToast(`碎片不足：升级 Lv${lv}→Lv${lv + 1} 需要 ${perLv} 个${rarityLabel(card.rarity)}碎片，当前 ${have} 个`, 'error');
+      showToast(tf('err_frag_level', { from: lv, to: lv + 1, need: perLv, rarity: rarityLabel(card.rarity), have }), 'error');
       return;
     }
-    if (!confirm(`升级 Lv${lv} → Lv${lv + 1}\n\n消耗 ${perLv} 个${rarityLabel(card.rarity)}碎片\n收益：攻击 +3 · 防御 +2（战力 +5）\n当前拥有 ${have} 个\n\n确定 = 升级，取消 = 中止`)) return;
+    if (!confirm(tf('confirm_level_up', { from: lv, to: lv + 1, need: perLv, rarity: rarityLabel(card.rarity), have }))) return;
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoUpgrade', { card_id: cardId }, { action: 'upgrade', spend: 0 });
@@ -1684,10 +1820,10 @@
   async function doDecompose(cardId) {
     try { await requireSanguo(); } catch (e) { showToast(e.message, 'error'); return; }
     const card = userCards.find((c) => c.card_id === cardId);
-    if (!card) { showToast('找不到该卡牌，请刷新「我的卡」后重试', 'error'); return; }
+    if (!card) { showToast(t('err_card_notfound'), 'error'); return; }
     const back = DECOMPOSE_FRAG_BACK[card.rarity] || 5;
     // 分解是销毁性操作：老版同款确认框，写清「不退还已投入」避免养成后白烧
-    if (!confirm(`⚠️ 分解后该卡将永久消失！\n\n「${card.name}」${card.star || 1}★ Lv${card.level || 0}\n仅返还 ${back} 个${rarityLabel(card.rarity)}碎片\n（不退还已投入的星级/等级/费用，养成后分解=白烧钱）\n\n确定 = 分解，取消 = 保留`)) return;
+    if (!confirm(tf('confirm_decompose', { name: card.name, star: card.star || 1, lv: card.level || 0, back, rarity: rarityLabel(card.rarity) }))) return;
     showBusy(t('doing'));
     try {
       await sanguoExec('SanguoDecompose', { card_id: cardId }, { action: 'decompose', spend: 0 });
@@ -2117,7 +2253,13 @@
     const dPow = $('detailPower'); if (dPow) dPow.textContent = power(card);
     const dStar = $('detailStar'); if (dStar) dStar.textContent = '★' + (card.star || 1) + (card.level ? ' Lv' + card.level : '');
     const dDesc = $('detailDesc');
-    if (dDesc) dDesc.textContent = `${card.identity || ''}${card.title ? '「' + card.title + '」' : ''}　攻击 ${card.attack != null ? card.attack : '?'} · 防御 ${card.defense != null ? card.defense : '?'} · 战力 ${power(card)}`;
+    if (dDesc) dDesc.textContent = tf('detail_stats', {
+      identity: card.identity || '',
+      title: card.title ? tf('detail_title_wrap', { t: card.title }) : '',
+      atk: card.attack != null ? card.attack : '?',
+      def: card.defense != null ? card.defense : '?',
+      pow: power(card),
+    });
     // 🟢「我的卡牌」弹窗只展示参数：养成按钮统一放到「养成」页，这里始终隐藏。
     const actions = document.querySelector('#cardDetailModal .star-actions');
     if (actions) actions.style.display = 'none';
@@ -2180,7 +2322,7 @@
     const total = CARD_TEMPLATES.length;
     const ownedCount = CARD_TEMPLATES.filter((tpl) => ownedNames.has(tpl.name)).length;
     const prog = $('codexProgress');
-    if (prog) prog.textContent = `收集进度：${ownedCount} / ${total}（点击卡牌查看详情）`;
+    if (prog) prog.textContent = tf('codex_progress', { own: ownedCount, total });
     const grid = $('codexContent');
     if (grid) {
       grid.innerHTML = CARD_TEMPLATES.map((tpl) => {
@@ -2188,7 +2330,7 @@
         const cls = rarityClass(tpl.rarity);
         const have = ownedNames.has(tpl.name);
         return `<div class="codex-card ${cls}" onclick="openCodexCard('${esc(tpl.name)}')">
-          ${have ? '' : '<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">未拥有</div>'}
+          ${have ? '' : `<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">${t('codex_not_owned')}</div>`}
           <div class="cc-img"><img src="${img}" onerror="this.style.display='none'"></div>
           <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div><div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
         </div>`;
@@ -2250,23 +2392,23 @@
     let sidesHtml;
     if (opts.sides && opts.sides.length) {
       sidesHtml = opts.sides.map((s) => `
-        <div class="side-label">${esc(s.label || '—')}（出战）</div>
+        <div class="side-label">${esc(s.label || '—')}${t('battle_deployed')}</div>
         <div class="side-cards">${(s.cards || []).map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>`).join('');
     } else {
       const you = (opts.you || []).map((c) => (Object.assign({}, c, { win: opts.result === 'win' })));
       const opp = (opts.opp || []).map((c) => (Object.assign({}, c, { win: opts.result === 'lose' })));
       sidesHtml = `
-        <div class="side-label">${esc(opts.youLabel || '你')}（出战）</div>
+        <div class="side-label">${esc(opts.youLabel || t('battle_you'))}${t('battle_deployed')}</div>
         <div class="side-cards">${you.map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>
-        <div class="side-label">${esc(opts.oppLabel || '对手')}（出战）</div>
+        <div class="side-label">${esc(opts.oppLabel || t('battle_opp'))}${t('battle_deployed')}</div>
         <div class="side-cards">${opp.map(miniCardHtml).join('') || '<span class="hint">—</span>'}</div>`;
     }
     const resultClass = opts.result === 'win' ? 'win' : opts.result === 'lose' ? 'lose' : 'draw';
-    const resultText = opts.result === 'win' ? '🏆 胜利！' : opts.result === 'lose' ? '💀 失败' : '🤝 平局';
-    const rewardHtml = (opts.reward != null && Number(opts.reward) > 0) ? `<div class="side-label">奖励：${opts.reward} TKCC</div>` : '';
-    const rwHtml = (opts.roundWins !== null && opts.roundWins !== undefined && opts.roundWins !== '') ? `<div class="side-label">三局 ${opts.roundWins} 胜</div>` : '';
+    const resultText = opts.result === 'win' ? t('battle_win') : opts.result === 'lose' ? t('battle_lose') : t('battle_draw');
+    const rewardHtml = (opts.reward != null && Number(opts.reward) > 0) ? `<div class="side-label">${tf('battle_reward', { amt: opts.reward })}</div>` : '';
+    const rwHtml = (opts.roundWins !== null && opts.roundWins !== undefined && opts.roundWins !== '') ? `<div class="side-label">${tf('battle_rounds', { n: opts.roundWins })}</div>` : '';
     arena.innerHTML = `
-      <div class="vs-banner">⚔️ 对战结果</div>
+      <div class="vs-banner">${t('battle_result_title')}</div>
       ${sidesHtml}
       ${rwHtml}${rewardHtml}
       <div class="final-result ${resultClass}">${resultText}</div>`;
@@ -2294,9 +2436,9 @@
     // 对手（AI）：用战力还原最接近模板作展示（带 AI 标记）
     const opp = aiPowers.map((p) => {
       const tpl = bestMatchTemplate(p);
-      return { name: tpl ? tpl.name : 'AI 战将', rarity: tpl ? tpl.rarity : 'common', power: p, ai: true };
+      return { name: tpl ? tpl.name : t('battle_ai_general'), rarity: tpl ? tpl.rarity : 'common', power: p, ai: true };
     });
-    showBattle({ you, opp, result, youLabel: '你', oppLabel: 'AI 难度 ' + diff, roundWins, reward });
+    showBattle({ you, opp, result, youLabel: t('battle_you'), oppLabel: tf('battle_ai_diff', { n: diff }), roundWins, reward });
   }
   window.showAiBattleFromTx = showAiBattleFromTx;
 
@@ -2312,7 +2454,7 @@
       if (state.wallet && winner === state.wallet.address) result = 'win';
       else if (state.wallet && (m.challenger === state.wallet.address || m.opponent === state.wallet.address)) result = 'lose';
     }
-    showBattle({ you: ch, opp: op, youLabel: '挑战方', oppLabel: '应战方', result });
+    showBattle({ you: ch, opp: op, youLabel: t('battle_challenger'), oppLabel: t('battle_defender'), result });
   }
   window.showPvpBattle = showPvpBattle;
 
@@ -2334,7 +2476,7 @@
       const isMe = state.wallet && players[i] === state.wallet.address;
       const isWin = winner && players[i] === winner;
       const short = sgShortAddr(players[i]);
-      sides.push({ label: (isMe ? '你' : short) + (isWin ? ' 👑' : ''), cards });
+      sides.push({ label: (isMe ? t('battle_you') : short) + (isWin ? ' 👑' : ''), cards });
     }
     showBattle({ sides, result });
   }

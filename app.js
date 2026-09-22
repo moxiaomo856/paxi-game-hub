@@ -67,6 +67,14 @@ const HUB_I18N = {
     menu_deposit: '💰 充值', menu_withdraw: '💳 提现',
     menu_pump: '🚀 个性化发币', menu_burn: '🔥 燃烧代币', menu_reset: '🔄 重置数据',
     menu_economy: '📖 玩法及经济说明',
+    // —— 玩法及经济说明弹窗 / 卡牌弹窗（静态 UI 文案）——
+    menu_settings: '设置',
+    eco_title: '📖 玩法及经济说明',
+    codex_title: '📚 卡牌图鉴',
+    detail_rarity: '稀有度', detail_faction: '阵营', detail_atk: '攻击',
+    detail_def: '防御', detail_total: '共计', detail_star: '⭐ 星级',
+    btn_star_up: '⭐ 升1星', btn_star_frag: '✨ 碎片升星', btn_level_up: '💠 升级',
+    btn_decompose: '🔥 分解', btn_close: '关闭', modal_processing: '处理中...',
     // —— 通用 ——
     processing: '处理中…', loading: '加载中…', back_home: '← 大厅', back_wallet: '← 钱包',
     not_deployed: '合约未部署', pending_deploy: '🔒 待部署', disabled: '已停用',
@@ -161,6 +169,14 @@ const HUB_I18N = {
     menu_deposit: '💰 Deposit', menu_withdraw: '💳 Withdraw',
     menu_pump: '🚀 Personal Token', menu_burn: '🔥 Burn Token', menu_reset: '🔄 Reset Data',
     menu_economy: '📖 Gameplay & economy',
+    // —— economy / card modals (static UI text) ——
+    menu_settings: 'Settings',
+    eco_title: '📖 Gameplay & Economy',
+    codex_title: '📚 Card Codex',
+    detail_rarity: 'Rarity', detail_faction: 'Faction', detail_atk: 'ATK',
+    detail_def: 'DEF', detail_total: 'Total', detail_star: '⭐ Star',
+    btn_star_up: '⭐ +1 Star', btn_star_frag: '✨ Fragment Star', btn_level_up: '💠 Level Up',
+    btn_decompose: '🔥 Decompose', btn_close: 'Close', modal_processing: 'Processing...',
     // —— common ——
     processing: 'Processing…', loading: 'Loading…', back_home: '← Hub', back_wallet: '← Wallet',
     not_deployed: 'Contract not deployed', pending_deploy: '🔒 Pending', disabled: 'Disabled',
@@ -243,6 +259,15 @@ function applyHubLang() {
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const k = el.getAttribute('data-i18n');
     if (HUB_I18N[l] && HUB_I18N[l][k] != null) el.textContent = HUB_I18N[l][k];
+  });
+  // 需要翻译 title 属性的元素（如设置按钮）
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const k = el.getAttribute('data-i18n-title');
+    if (HUB_I18N[l] && HUB_I18N[l][k] != null) el.title = HUB_I18N[l][k];
+  });
+  // 双语内容块（玩法说明、启动错误提示等）：按语言切换显示，仅目标语言加 .active
+  document.querySelectorAll('.lang-zh, .lang-en').forEach((el) => {
+    el.classList.toggle('active', el.classList.contains('lang-' + l));
   });
   // 设置菜单语言高亮
   const zh = $('langZhBtn'), en = $('langEnBtn');
