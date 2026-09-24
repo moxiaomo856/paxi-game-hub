@@ -78,6 +78,7 @@ const HUB_I18N = {
     // —— 通用 ——
     processing: '处理中…', loading: '加载中…', back_home: '← 大厅', back_wallet: '← 钱包',
     not_deployed: '合约未部署', pending_deploy: '🔒 待部署', disabled: '已停用',
+    tag_external: '🎁 外部应用 · 新窗口打开',
     hint_connect: '连接钱包后即可开始游戏',
     hint_register: '首次游戏需注册会话密钥（一次性，之后下注不再弹钱包）',
     bal_onchain_paxi: '链上 PAXI', bal_incontract_paxi: '合约内 PAXI', bal_incontract_tkcc: '合约内 TKCC',
@@ -180,6 +181,7 @@ const HUB_I18N = {
     // —— common ——
     processing: 'Processing…', loading: 'Loading…', back_home: '← Hub', back_wallet: '← Wallet',
     not_deployed: 'Contract not deployed', pending_deploy: '🔒 Pending', disabled: 'Disabled',
+    tag_external: '🎁 External app · opens in new tab',
     hint_connect: 'Connect your wallet to start playing',
     hint_register: 'First-time players need to register a session key (one-time; bets then skip wallet popups)',
     bal_onchain_paxi: 'On-chain PAXI', bal_incontract_paxi: 'In-contract PAXI', bal_incontract_tkcc: 'In-contract TKCC',
@@ -420,18 +422,51 @@ function switchTab(tab) {
 }
 
 // ============================================================
-// 大厅展示名单与顺序（2026-09-20 精简：只留 4 个游戏）
-//   顺序：三国 → 骰宝 → 猜数字 → 疯狂骰子（三国排第一）
-//   未列入的 id 一律不显示：轮盘 roulette / roulette_vip、卡牌 card_rank / card_vs_dealer，
-//   以及链上没注册 game_id 的变体（如 guess_elite）——它们点进去必然报错。
-//   想恢复某个游戏：把它的 id 加进 HUB_VISIBLE_GAMES 即可，顺序即数组顺序。
+// 大厅展示名单与顺序（2026-09-24：放出猜数字两个变体 + 卡牌两个变体，共 7 个）
+//   顺序：三国 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子 → 卡牌·按牌型 → 卡牌·对战
+//   未列入的 id 一律不显示：轮盘 roulette / roulette_vip。
+//   ⚠️ 注意：只有链上 list_games 已注册 game_id 的才能放出来，
+//      否则 openGame 会在 game_engine_config_query / game_limit 处报「未配置」。
+//      当前链上已注册 8 个：card_rank, card_vs_dealer, crazydice, dice,
+//      guess, guess_elite, roulette, roulette_vip。
+//   想增删游戏：改这个数组即可，顺序即大厅卡片顺序。
 // ============================================================
-const HUB_VISIBLE_GAMES = ['sanguo', 'dice', 'guess', 'crazydice'];
+const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice', 'card_rank', 'card_vs_dealer'];
+
+// ============================================================
+// 外部跳转类「游戏」：不走链上引擎，点击直接开外链（不依赖合约、不用会话密钥）
+//   新增一个外部入口 = 往这里加一条 + 把 id 加进 HUB_VISIBLE_GAMES 即可。
+//   字段：meta.id / meta.name{zh,en} / meta.icon / meta.desc{zh,en} / meta.type='link' / href
+// ============================================================
+const HUB_LINK_GAMES = {
+  choujiang: {
+    href: 'https://moxiaomo856.github.io/paxi-choujiang/',
+    meta: {
+      id: 'choujiang',
+      type: 'link',
+      icon: '🎁',
+      name: { zh: '抽奖', en: 'Lucky Draw' },
+      desc: { zh: '跳转抽奖 DApp', en: 'Open the lucky-draw DApp' },
+    },
+  },
+};
+
 function hubVisibleGames() {
   const list = Array.isArray(window.GAMES) ? window.GAMES : [];
   return HUB_VISIBLE_GAMES
-    .map((id) => list.find((g) => g && g.meta && g.meta.id === id))
+    .map((id) => HUB_LINK_GAMES[id] || list.find((g) => g && g.meta && g.meta.id === id))
     .filter(Boolean);
+}
+
+/** 卡片点击：外部链接 → 新窗口打开；三国 → 打开三国；其余 → 链上游戏 */
+function hubOpenEntry(g, gameId) {
+  if (!g) return;
+  if (g.meta && g.meta.type === 'link' && g.href) {
+    window.open(g.href, '_blank', 'noopener');
+    return;
+  }
+  if (g.meta && g.meta.type === 'sanguo') { openSanguo(); return; }
+  openGame(gameId);
 }
 
 // ============================================================
@@ -440,12 +475,18 @@ function hubVisibleGames() {
 async function renderHome() {
   const main = $('main');  // 合约地址还没配 —— 仍然显示卡片（禁用），顶部加 banner 引导
   if (!hasGameContract()) {
-    const disabledCards = hubVisibleGames().map((g) => `
-      <div class="game-card disabled" title="${hubT('not_deployed')}">
+    // 外部跳转类（如抽奖）不依赖合约 → 保持可点，其余置灰
+    const disabledCards = hubVisibleGames().map((g) => {
+      const isLink = g.meta && g.meta.type === 'link' && g.href;
+      const nm = typeof g.meta.name === 'object' ? g.meta.name[hubLang()] : g.meta.name;
+      const ds = typeof g.meta.desc === 'object' ? g.meta.desc[hubLang()] : g.meta.desc;
+      return `
+      <div class="game-card${isLink ? '' : ' disabled'}" data-game="${g.meta.id}"${isLink ? '' : ` title="${hubT('not_deployed')}"`}>
         <div class="game-icon">${g.meta.icon || '🎮'}</div>
-        <div class="game-name">${typeof g.meta.name === 'object' ? g.meta.name[hubLang()] : g.meta.name}</div>
-        <div class="game-desc">${typeof g.meta.desc === 'object' ? g.meta.desc[hubLang()] : g.meta.desc} · ${hubT('pending_deploy')}</div>
-      </div>`).join('');
+        <div class="game-name">${nm}</div>
+        <div class="game-desc">${ds}${isLink ? ` · ${hubT('tag_external')}` : ` · ${hubT('pending_deploy')}`}</div>
+      </div>`;
+    }).join('');
     main.innerHTML = `
       <div class="card" style="background:#2a1a0a;border-color:#8a6a2a;margin-bottom:12px">
         <div class="card-title" style="color:#fbbf24">${hubT('banner_title')}</div>
@@ -459,6 +500,12 @@ async function renderHome() {
       <div class="card-title">${hubT('all_games')}</div>
       <div class="game-grid">${disabledCards}</div>
     `;
+    // 未配置合约时，只允许外部跳转卡片可点
+    document.querySelectorAll('[data-game]').forEach((el) => {
+      const id = el.dataset.game;
+      const g = HUB_LINK_GAMES[id] || window.GAME_REGISTRY[id];
+      if (g && g.meta && g.meta.type === 'link') el.onclick = () => hubOpenEntry(g, id);
+    });
     return;
   }
 
@@ -478,13 +525,15 @@ async function renderHome() {
   }
 
   const cards = hubVisibleGames().map((g) => {
+    const isLink = g.meta && g.meta.type === 'link' && g.href;   // 外部跳转：不看链上状态
     const entry = state.games.find((x) => x.game_id === g.meta.id);
-    const off = entry && entry.enabled === false;
+    const off = !isLink && entry && entry.enabled === false;
     const isSanguo = g.meta.type === 'sanguo';
     const gname = typeof g.meta.name === 'object' ? g.meta.name[hubLang()] : g.meta.name;
     const gdesc = typeof g.meta.desc === 'object' ? g.meta.desc[hubLang()] : g.meta.desc;
     // 审计 #8：通用游戏用 TKCC 下注，限额单位改为 TKCC
-    const tag = off ? hubT('disabled')
+    const tag = isLink ? hubT('tag_external')
+      : off ? hubT('disabled')
       : isSanguo ? gdesc
       : (entry ? `${fromRawUnits(entry.min_bet)} ~ ${fromRawUnits(entry.max_bet)} TKCC` : '');
     return `
@@ -509,9 +558,9 @@ async function renderHome() {
     </div>`;
 
   document.querySelectorAll('[data-game]').forEach((el) => {
-    const g = window.GAME_REGISTRY[el.dataset.game];
-    if (g && g.meta.type === 'sanguo') el.onclick = () => openSanguo();
-    else el.onclick = () => openGame(el.dataset.game);
+    const id = el.dataset.game;
+    const g = HUB_LINK_GAMES[id] || window.GAME_REGISTRY[id];
+    el.onclick = () => hubOpenEntry(g, id);
   });
 }
 
