@@ -104,6 +104,13 @@ const HUB_I18N = {
     reset_session_desc: '仅在 nonce 卡死或想换密钥时使用。清除后需重新注册会话。',
     // —— 游戏页 ——
     result_title: '🎰 结果', result_placeholder: '下注后显示结果',
+    // —— 本局链上明细（2026-09-28 新增：解释"钱包只显示其中一条转账"）——
+    bd_title: '🧾 本局链上明细',
+    bd_bet: '下注', bd_burn: '销毁', bd_treasury: '运营', bd_pool: '奖池准备金',
+    bd_payout: '派彩（含本金）', bd_profit: '净赚',
+    bd_txhash: '交易哈希', bd_height: '区块高度',
+    bd_win_note: '赢局不扣费：本金原路留在合约内余额，净赚部分从奖池准备金支付。',
+    bd_note: '⚠️ 钱包 App 的转账记录通常只显示上面的「运营」一条 —— 它是本局唯一产生的 cw20 转账，并不等于你的下注金额。下注与奖池走合约内部记账、销毁走 cw20 burn，都不产生转账事件，请以链上事件 / 区块浏览器为准。',
     bet_title: '💵 下注', bet_min: '最小', bet_max: '最大', bet_x2: '翻倍', bet_half: '减半',
     btn_play: '开始游戏', btn_submitting: '提交中…',
     limit_single: '单局限额', limit_daily: '每日上限',
@@ -207,6 +214,12 @@ const HUB_I18N = {
     reset_session_desc: 'Only use when the nonce is stuck or you want new keys. You must re-register the session afterwards.',
     // —— game page ——
     result_title: '🎰 Result', result_placeholder: 'Result shows after betting',
+    bd_title: '🧾 On-chain breakdown',
+    bd_bet: 'Bet', bd_burn: 'Burned', bd_treasury: 'Treasury', bd_pool: 'House bankroll',
+    bd_payout: 'Payout (incl. stake)', bd_profit: 'Net profit',
+    bd_txhash: 'Tx hash', bd_height: 'Height',
+    bd_win_note: 'Wins are not charged: the stake stays in your in-contract balance and the profit is paid from the house bankroll.',
+    bd_note: '⚠️ The wallet app usually shows only the "Treasury" line above — it is the only cw20 transfer produced by this round and is NOT your bet amount. Bets and the house bankroll are internal accounting, and burning uses cw20 burn, so neither emits a transfer event. Trust the on-chain events / block explorer over the wallet summary.',
     bet_title: '💵 Bet', bet_min: 'Min', bet_max: 'Max', bet_x2: '×2', bet_half: '½',
     btn_play: 'Play', btn_submitting: 'Submitting…',
     limit_single: 'Bet Range', limit_daily: 'Daily Limit',
@@ -422,16 +435,17 @@ function switchTab(tab) {
 }
 
 // ============================================================
-// 大厅展示名单与顺序（2026-09-24：放出猜数字两个变体 + 卡牌两个变体，共 7 个）
-//   顺序：三国 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子 → 卡牌·按牌型 → 卡牌·对战
-//   未列入的 id 一律不显示：轮盘 roulette / roulette_vip。
+// 大厅展示名单与顺序（2026-09-28：卡牌两个变体隐藏，猜数字保持显示）
+//   顺序：三国 → 抽奖 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
+//   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）、
+//   轮盘 roulette / roulette_vip。
 //   ⚠️ 注意：只有链上 list_games 已注册 game_id 的才能放出来，
 //      否则 openGame 会在 game_engine_config_query / game_limit 处报「未配置」。
 //      当前链上已注册 8 个：card_rank, card_vs_dealer, crazydice, dice,
 //      guess, guess_elite, roulette, roulette_vip。
-//   想增删游戏：改这个数组即可，顺序即大厅卡片顺序。
+//   想增删游戏：改这个数组即可，顺序即大厅卡片顺序（链上游戏仍在，随时可放回）。
 // ============================================================
-const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice', 'card_rank', 'card_vs_dealer'];
+const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice'];
 
 // ============================================================
 // 外部跳转类「游戏」：不走链上引擎，点击直接开外链（不依赖合约、不用会话密钥）
@@ -1105,11 +1119,29 @@ async function openGame(gameId) {
       throw new Error(hubT('engine_mismatch')(g.meta.engine, engineKey));
     }
 
+    // 2.5 本局链上明细用：销毁 / 运营比例（优先本游戏 GameConfig 覆盖，回落全局）
+    let econ = { burnEnabled: true, burnBps: 500, treasBps: 500 };
+    try {
+      const [gc, bc, tc] = await Promise.all([
+        queryContract({ game_config: { game_id: gameId } }).catch(() => null),
+        queryContract({ burn_config: {} }).catch(() => null),
+        queryContract({ treasury_config: {} }).catch(() => null),
+      ]);
+      const burnBps = (gc && gc.burn_rate_override != null)
+        ? Number(gc.burn_rate_override)
+        : (bc && bc.burn_rate != null ? Number(bc.burn_rate) : 500);
+      const treasBps = (gc && gc.treasury_share_override != null)
+        ? Number(gc.treasury_share_override)
+        : (tc && tc.treasury_share != null ? Number(tc.treasury_share) : 500);
+      econ = { burnEnabled: !gc || gc.burn_enabled !== false, burnBps, treasBps };
+    } catch (e) {}
+
     ctx = {
       id: gameId,
       game: g,
       params: cfg.config.params[engineKey],
       limit: lim.limit,
+      econ,
     };
 
     // 3. 渲染
@@ -1135,6 +1167,14 @@ async function openGame(gameId) {
       <div class="card">
         <div class="card-title">${hubT('result_title')}</div>
         <div class="result-stage" id="stage"><span class="placeholder-txt">${hubT('result_placeholder')}</span></div>
+      </div>
+
+      <div class="card" id="bdCard" style="display:none">
+        <div class="card-title">${hubT('bd_title')}</div>
+        <div id="bdBody"></div>
+        <div class="kv"><span class="k">${hubT('bd_txhash')}</span><span class="v" id="bdHash">—</span></div>
+        <div class="kv"><span class="k">${hubT('bd_height')}</span><span class="v" id="bdHeight">—</span></div>
+        <div class="desc" style="margin-top:8px" id="bdNote"></div>
       </div>
 
       ${body}
@@ -1258,17 +1298,22 @@ async function doPlay() {
     Session.bumpNonce();   // 只有确认上链后才自增
     log(`${hubT('chain_ok_log')} ${tx.height}`, 'ok');
 
-    const ev = parseTxEvents(tx, ['won', 'payout', 'profit_paid', 'result', 'engine_result', 'bet']);
+    const ev = parseTxEvents(tx, ['won', 'payout', 'profit_paid', 'result', 'engine_result', 'bet', 'burn_amount', 'treasury_amount']);
     const first = (k) => (ev[k] && ev[k].length ? ev[k][ev[k].length - 1] : undefined);
     const out = {
       won: first('won') === 'true',
       payout: first('payout'),
       engineResult: first('engine_result'),
+      bet: first('bet'),
+      burnAmount: first('burn_amount'),
+      treasuryAmount: first('treasury_amount'),
       raw: ev,
     };
 
     const html = ctx.game.result ? ctx.game.result(ctx, out) : '';
     $('stage').innerHTML = html || `<div class="big-result">${out.won ? hubT('you_win') : hubT('you_lose')}</div>`;
+
+    renderTxBreakdown(out, hash, tx.height, betU);
 
     log(
       out.won
@@ -1290,6 +1335,62 @@ async function doPlay() {
     btn.textContent = hubT('btn_play');
     refreshGameClaim();   // 赢局派彩即时进合约内部余额，刷新可领取额
   }
+}
+
+// ============================================================
+// 本局链上明细（2026-09-28 新增）
+// ------------------------------------------------------------
+// 背景：一局下注在链上被拆成 3 份，但**只有「运营」那一份会产生 cw20 transfer 事件**：
+//   · 下注            → 从合约内余额扣减，内部记账，无事件
+//   · 奖池准备金 90%  → 内部记账（HOUSE_BANKROLL），无事件
+//   · 销毁       5%   → cw20 burn 事件（不是 transfer）
+//   · 运营       5%   → cw20 transfer 事件（钱包唯一能识别的那条）
+// 于是钱包把「运营 500」当成整笔交易的金额显示，玩家会误以为金额对不上。
+// 这里直接把拆分摆出来，并写清楚原因。数据全部取自 tx 事件，取不到才用配置比例推算。
+// ============================================================
+function renderTxBreakdown(out, hash, height, betU) {
+  const card = $('bdCard');
+  if (!card || !ctx) return;
+
+  const econ = ctx.econ || { burnEnabled: true, burnBps: 500, treasBps: 500 };
+  const bet = BigInt(out.bet || betU || '0');
+  const tk = (v) => `${fromRawUnits(v.toString())} TKCC`;
+  const pct = (bps) => `${(Number(bps) / 100).toFixed(Number(bps) % 100 ? 2 : 0)}%`;
+  const row = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+
+  let rows = '';
+  let note = '';
+
+  if (out.won) {
+    const payout = BigInt(out.payout || '0');
+    const profit = payout > bet ? payout - bet : 0n;
+    rows =
+      row(hubT('bd_bet'), tk(bet)) +
+      row(hubT('bd_payout'), tk(payout)) +
+      row(hubT('bd_profit'), `${tk(profit)}（${hubT('bd_pool')}）`);
+    note = hubT('bd_win_note');
+  } else {
+    let burn = BigInt(out.burnAmount || '0');
+    let treas = BigInt(out.treasuryAmount || '0');
+    // 事件里没有（老节点/未开销毁）→ 按链上 burn_config / treasury_config 比例推算
+    if (burn === 0n && treas === 0n && bet > 0n) {
+      burn = (bet * BigInt(econ.burnEnabled ? econ.burnBps : 0)) / 10000n;
+      treas = (bet * BigInt(econ.treasBps)) / 10000n;
+    }
+    const pool = bet > burn + treas ? bet - burn - treas : 0n;
+    rows =
+      row(hubT('bd_bet'), tk(bet)) +
+      row(hubT('bd_burn'), `${tk(burn)}（${pct(econ.burnEnabled ? econ.burnBps : 0)}）`) +
+      row(hubT('bd_treasury'), `${tk(treas)}（${pct(econ.treasBps)}）`) +
+      row(hubT('bd_pool'), `${tk(pool)}（${pct(Math.max(0, 10000 - (econ.burnEnabled ? econ.burnBps : 0) - econ.treasBps))}）`);
+    note = hubT('bd_note');
+  }
+
+  $('bdBody').innerHTML = rows;
+  $('bdNote').innerHTML = note;
+  $('bdHash').textContent = hash ? `${hash.slice(0, 12)}…${hash.slice(-6)}` : '—';
+  $('bdHeight').textContent = height || '—';
+  card.style.display = '';
 }
 
 // ============================================================
