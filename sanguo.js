@@ -622,6 +622,25 @@
   }
   function power(c) { return (Number(c.attack || 0) + Number(c.defense || 0)); }
 
+  // ---- 阵营（identity）辅助（2026-09-29）----
+  // 链上返回的玩家卡只带 name/rarity/attack/defense/star/level，不带阵营；
+  // 图鉴模板（链上优先、本地兜底）带 identity（如「蜀·五虎将」）。按名字查表补齐。
+  function sgTplByName(name) {
+    const src = (_sgTemplatesCache && _sgTemplatesCache.length) ? _sgTemplatesCache : CARD_TEMPLATES;
+    return src.find((t) => t && t.name === name) || CARD_TEMPLATES.find((t) => t.name === name) || null;
+  }
+  function sgCardIdentity(c) {
+    if (!c) return '';
+    const tpl = sgTplByName(c.name);
+    return (tpl && (tpl.identity || tpl.faction)) || c.identity || '';
+  }
+  // 阵营配色：取 identity「·」前首字（魏/蜀/吴/汉/群），其余用中性色
+  const SG_FACTION_COLORS = { '魏': '#5aa7ff', '蜀': '#ff6b5e', '吴': '#3ecf8e', '汉': '#e8b04b', '群': '#b48cff' };
+  function sgFactionColor(idt) {
+    const f = String(idt || '').split('·')[0].trim();
+    return SG_FACTION_COLORS[f] || '#a89a8a';
+  }
+
   // 对战里展示玩家地址：只保留前 15 个字符，其余用省略号代替（避免长地址撑破排版）
   function sgShortAddr(a) {
     const s = String(a || '');
@@ -1494,6 +1513,9 @@
     const cls = rarityClass(c.rarity);
     const cid = esc(c.card_id);
     const lvTxt = (c.star > 1 || c.level > 0) ? `<div class="sg-card-lv">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
+    // 🟢 阵营行（2026-09-29）：链上卡不带阵营，按名字查模板补齐（图鉴与我的卡一致）
+    const idt = sgCardIdentity(c);
+    const ffHtml = idt ? `<div class="ff" style="color:${sgFactionColor(idt)}">${esc(idt)}</div>` : '';
     // 🟢 批量分解模式：点击只切换勾选，不进详情
     if (sgBatchMode) {
       const sel = sgBatchSel.has(c.card_id);
@@ -1501,7 +1523,7 @@
         ${lvTxt}
         ${sel ? '<div class="sg-pick-ord">✓</div>' : ''}
         <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
-        <div class="sg-card-foot"><div class="nm">${esc(c.name)}</div><div class="rr">${rarityLabel(c.rarity)}</div></div>
+        <div class="sg-card-foot"><div class="nm">${esc(c.name)}</div>${ffHtml}<div class="rr">${rarityLabel(c.rarity)}</div></div>
       </div>`;
     }
     // 🟢「我的卡牌」只展示卡牌参数，不放养成按钮（升级/升星/分解统一到「养成」页）。
@@ -1510,6 +1532,7 @@
       <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
       <div class="sg-card-foot">
         <div class="nm">${esc(c.name)}</div>
+        ${ffHtml}
         <div class="rr">${rarityLabel(c.rarity)} · ${t('power_label')} ${power(c)}</div>
       </div>
     </div>`;
@@ -2359,7 +2382,14 @@
   function openCardDetailFromId(cardId) {
     const card = userCards.find((c) => c.card_id === cardId);
     if (!card) return;
-    openCardDetail(card, true);
+    // 🟢 2026-09-29：链上卡不带 title/identity（阵营），按名字查模板补齐，
+    //    让「我的卡」详情与图鉴详情显示同样的阵营信息。
+    const tpl = sgTplByName(card.name) || {};
+    openCardDetail({
+      ...card,
+      title: card.title || tpl.title || '',
+      identity: card.identity || tpl.identity || '',
+    }, true);
   }
   window.openCardDetailFromId = openCardDetailFromId;
 
@@ -2515,10 +2545,13 @@
       const img = getCardImage(tpl.name);
       const cls = rarityClass(tpl.rarity);
       const have = ownedNames.has(tpl.name);
+      // 🟢 阵营行与「我的卡」保持一致（2026-09-29）
+      const idt = (tpl.identity || tpl.faction) || '';
+      const ffHtml = idt ? `<div class="ff" style="color:${sgFactionColor(idt)}">${esc(idt)}</div>` : '';
       return `<div class="codex-card ${cls} sg-fade-in" style="animation-delay:${Math.min(i * 18, 420)}ms" onclick="openCodexCard('${esc(tpl.name)}')">
         ${have ? '' : `<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">${t('codex_not_owned')}</div>`}
         <div class="cc-img"><img src="${img}" onerror="this.style.display='none'"></div>
-        <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div><div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
+        <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div>${ffHtml}<div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
       </div>`;
     }).join('');
   }
