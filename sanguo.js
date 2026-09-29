@@ -254,6 +254,20 @@
       'codex_open': '📚 卡牌图鉴（{n} 将）',
       'codex_progress': '收集进度：{own} / {total}（点击卡牌查看详情）',
       'codex_not_owned': '未拥有',
+      'codex_search': '搜索武将 / 称号',
+      'codex_collect': '收藏',
+      'codex_empty': '没有匹配的卡牌',
+      'sort_power': '按战力',
+      'sort_atk': '按攻击',
+      'sort_def': '按防御',
+      'sort_name': '按名称',
+      'batch_decompose': '批量分解',
+      'batch_decompose_do': '分解选中',
+      'batch_none': '请先勾选要分解的卡牌',
+      'batch_decompose_confirm': '确定批量分解 {n} 张卡牌吗？\n分解后卡牌永久消失、返还碎片，不可恢复！',
+      'batch_decompose_ok': '已分解 {n} 张卡牌',
+      'selected': '已选',
+      'cancel': '取消',
 
       // ---- 卡牌详情 ----
       'detail_title_wrap': '「{t}」',
@@ -475,6 +489,20 @@
       'codex_open': '📚 Card Codex ({n} generals)',
       'codex_progress': 'Collecting: {own} / {total} (tap a card for details)',
       'codex_not_owned': 'Not owned',
+      'codex_search': 'Search name / title',
+      'codex_collect': 'Collected',
+      'codex_empty': 'No matching cards',
+      'sort_power': 'By Power',
+      'sort_atk': 'By ATK',
+      'sort_def': 'By DEF',
+      'sort_name': 'By Name',
+      'batch_decompose': 'Batch Decompose',
+      'batch_decompose_do': 'Decompose Selected',
+      'batch_none': 'Select cards to decompose first',
+      'batch_decompose_confirm': 'Decompose {n} cards?\nCards are destroyed permanently and fragments returned. Cannot be undone!',
+      'batch_decompose_ok': 'Decomposed {n} cards',
+      'selected': 'Selected',
+      'cancel': 'Cancel',
 
       // ---- card detail ----
       'detail_title_wrap': '"{t}"',
@@ -552,6 +580,36 @@
     const idx = CARD_TEMPLATES.findIndex((c) => c.name === name);
     return idx >= 0 ? IMAGE_URLS[idx] : '';
   }
+
+  // ============================================================
+  // 链上卡牌模板（P1-8：图鉴优先读链上 sanguo_templates，失败回退本地硬编码）
+  // ============================================================
+  let _sgTemplatesCache = null;   // 链上模板缓存
+  async function loadSanguoTemplates(force) {
+    if (_sgTemplatesCache && !force) return _sgTemplatesCache;
+    try {
+      const r = await queryContract({ sanguo_templates: { start_after: null, limit: 200 } });
+      const arr = (r && Array.isArray(r.templates)) ? r.templates
+                : (r && Array.isArray(r)) ? r
+                : [];
+      if (arr.length) {
+        _sgTemplatesCache = arr.map((tp) => ({
+          name: tp.name,
+          title: tp.title || '',
+          rarity: tp.rarity || 'common',
+          attack: Number(tp.attack || 0),
+          defense: Number(tp.defense || 0),
+          identity: tp.identity || tp.faction || '',
+        }));
+        return _sgTemplatesCache;
+      }
+    } catch (e) {
+      console.warn('[loadSanguoTemplates] 链上查询失败，回退本地模板:', e && e.message);
+    }
+    return CARD_TEMPLATES;   // 回退：始终保证图鉴可用
+  }
+  window.loadSanguoTemplates = loadSanguoTemplates;
+
   const RARITY_LABEL = {
     legend: { zh: '传说', en: 'Legend' },
     epic: { zh: '史诗', en: 'Epic' },
@@ -752,6 +810,8 @@
   let paramsCache = null;
   let tapCountCache = 0;     // 从 sanguo_config 读取的抽水地址数量；查询失败保持 0，doDraw 会拒绝（审计 P2-1）
   let sanguoPicked = [];     // 养成-出战顺序 / PVP / 混战 选中的 card_id 列表
+  let sgBatchMode = false;   // 我的卡 - 批量分解模式（P1-9）
+  let sgBatchSel = new Set(); // 批量分解选中的 card_id
   let sgPendingAction = null; // 'accept_pvp' | 'join_royale'（通用卡牌选择面板）
   let sgPendingId = null;     // 对应的 match_id / royale_id
   // 碎片合成消耗（普通/稀有/史诗/传说）——必须与合约一致：src/sanguo/state.rs::CRAFT_COST = [30,60,150,400]
@@ -1166,8 +1226,16 @@
         <button class="btn btn-gold" id="sgClaimAll" style="margin-top:8px">${t('claim_btn')}</button>
       </div>
       <div class="card">
-        <div class="card-title">🃏 ${t('my_cards')}（<span id="sgCardCount">0</span>）</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          🃏 ${t('my_cards')}（<span id="sgCardCount">0</span>）
+          <button class="btn btn-sm ${sgBatchMode ? 'btn-primary' : 'btn-ghost'}" id="sgBatchBtn">${t('batch_decompose')}</button>
+        </div>
         <div class="desc">${t('my_cards_desc')}</div>
+      </div>
+      <div id="sgBatchBar" class="sg-batch-bar" style="display:${sgBatchMode ? 'flex' : 'none'}">
+        <span>${t('selected')} <span id="sgBatchCount">${sgBatchSel.size}</span></span>
+        <button class="btn btn-sm btn-danger" id="sgBatchDo">${t('batch_decompose_do')}</button>
+        <button class="btn btn-sm btn-ghost" id="sgBatchCancel">${t('cancel')}</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px" id="sgCardGrid"></div>`;
     if (state.wallet) await loadSanguoCards();
@@ -1179,6 +1247,15 @@
       grid.innerHTML = userCards.map((c) => cardHtml(c)).join('');
       sgJustDrew = false;   // 翻牌类已写进 HTML，立刻清位，避免下次无关重渲染再翻
     }
+    // 批量分解模式绑定（P1-9）
+    const bb = $('sgBatchBtn');
+    if (bb) bb.onclick = () => { sgBatchMode = !sgBatchMode; if (!sgBatchMode) sgBatchSel.clear(); renderSanguoTab(); };
+    const bdo = $('sgBatchDo');
+    if (bdo) bdo.onclick = () => sgBatchDecompose();
+    const bcancel = $('sgBatchCancel');
+    if (bcancel) bcancel.onclick = () => { sgBatchMode = false; sgBatchSel.clear(); renderSanguoTab(); };
+    const bcount = $('sgBatchCount');
+    if (bcount) bcount.textContent = String(sgBatchSel.size);
     // 老合约资产迁移入口（仅当管理员已放行该老合约时展示）
     renderSanguoMigrationEntry();
 
@@ -1411,6 +1488,16 @@
     const cls = rarityClass(c.rarity);
     const cid = esc(c.card_id);
     const lvTxt = (c.star > 1 || c.level > 0) ? `<div class="sg-card-lv">★${c.star || 1}${c.level ? ' Lv' + c.level : ''}</div>` : '';
+    // 🟢 批量分解模式：点击只切换勾选，不进详情
+    if (sgBatchMode) {
+      const sel = sgBatchSel.has(c.card_id);
+      return `<div class="sg-card ${cls}${sel ? ' sg-sel' : ''}" data-bcid="${c.card_id}" onclick="sgToggleBatch('${cid}')">
+        ${lvTxt}
+        ${sel ? '<div class="sg-pick-ord">✓</div>' : ''}
+        <div class="sg-card-img"><img src="${img}" onerror="this.style.display='none'"></div>
+        <div class="sg-card-foot"><div class="nm">${esc(c.name)}</div><div class="rr">${rarityLabel(c.rarity)}</div></div>
+      </div>`;
+    }
     // 🟢「我的卡牌」只展示卡牌参数，不放养成按钮（升级/升星/分解统一到「养成」页）。
     return `<div class="sg-card ${cls}${sgJustDrew ? ' new-card' : ''}" onclick="openCardDetailFromId('${cid}')">
       ${lvTxt}
@@ -1421,6 +1508,49 @@
       </div>
     </div>`;
   }
+  // 批量分解：切换勾选并刷新计数
+  function sgToggleBatch(cid) {
+    if (sgBatchSel.has(cid)) sgBatchSel.delete(cid); else sgBatchSel.add(cid);
+    const cnt = $('sgBatchCount');
+    if (cnt) cnt.textContent = String(sgBatchSel.size);
+    const grid = $('sgCardGrid');
+    if (grid) {
+      const el = grid.querySelector(`.sg-card[data-bcid="${cid}"]`);
+      if (el) el.classList.toggle('sg-sel', sgBatchSel.has(cid));
+    }
+  }
+  window.sgToggleBatch = sgToggleBatch;
+  // 静默分解（批量用：不弹确认、不弹单卡 toast，失败向上抛）
+  async function doDecomposeSilent(cardId) {
+    await requireSanguo();
+    const card = userCards.find((c) => c.card_id === cardId);
+    if (!card) return;
+    showBusy(t('doing'));
+    try {
+      await sanguoExec('SanguoDecompose', { card_id: cardId }, { action: 'decompose', spend: 0 });
+    } finally {
+      hideBusy();
+      try { await loadSanguoCards(); } catch (_) {}
+    }
+  }
+  async function sgBatchDecompose() {
+    const ids = Array.from(sgBatchSel);
+    if (!ids.length) { showToast(t('batch_none'), 'error'); return; }
+    if (!confirm(tf('batch_decompose_confirm', { n: ids.length }))) return;
+    showBusy(t('doing'));
+    let okN = 0;
+    try {
+      for (const id of ids) { await doDecomposeSilent(id); okN++; }
+      showToast(tf('batch_decompose_ok', { n: okN }), 'success');
+    } catch (e) {
+      showToast(t('fail_prefix') + (e.message || e), 'error');
+    } finally {
+      hideBusy();
+      sgBatchMode = false; sgBatchSel.clear();
+      renderSanguoTab();
+    }
+  }
+  window.sgBatchDecompose = sgBatchDecompose;
 
   // ============================================================
   // 卡牌选择面板（养成-出战顺序 / PVP / 混战 共用）
@@ -2317,24 +2447,87 @@
   };
 
   // ---- 卡牌图鉴 ----
-  async function openCodex() {
-    const ownedNames = new Set(userCards.map((c) => c.name));
-    const total = CARD_TEMPLATES.length;
-    const ownedCount = CARD_TEMPLATES.filter((tpl) => ownedNames.has(tpl.name)).length;
-    const prog = $('codexProgress');
-    if (prog) prog.textContent = tf('codex_progress', { own: ownedCount, total });
+  // 图鉴筛选状态（P1-9：搜索 / 稀有度 / 排序）
+  let _codexFilter = { q: '', rarity: 'all', sort: 'power' };
+
+  function renderCodexToolbar() {
+    let bar = $('codexToolbar');
+    if (bar) return;
+    const modal = $('codexModal');
+    if (!modal) return;
+    bar = document.createElement('div');
+    bar.id = 'codexToolbar';
+    bar.className = 'codex-toolbar';
+    const allLabel = (window.HUB_LANG === 'en') ? 'All' : '全部';
+    bar.innerHTML = `
+      <input id="codexSearch" class="codex-search" placeholder="${esc(t('codex_search'))}" />
+      <div class="codex-filters">
+        ${['all', 'legend', 'epic', 'rare', 'common'].map((r) =>
+          `<button class="codex-fbtn${r === 'all' ? ' on' : ''}" data-r="${r}">${r === 'all' ? allLabel : rarityLabel(r)}</button>`).join('')}
+      </div>
+      <select id="codexSort" class="codex-sort">
+        <option value="power">${esc(t('sort_power'))}</option>
+        <option value="atk">${esc(t('sort_atk'))}</option>
+        <option value="def">${esc(t('sort_def'))}</option>
+        <option value="name">${esc(t('sort_name'))}</option>
+      </select>`;
+    const h2 = modal.querySelector('h2');
+    if (h2) h2.insertAdjacentElement('afterend', bar);
+    else modal.querySelector('.modal').insertBefore(bar, $('codexProgress'));
+    const search = $('codexSearch');
+    if (search) search.oninput = (e) => { _codexFilter.q = (e.target.value || '').trim().toLowerCase(); _renderCodexGridFromCache(); };
+    const sort = $('codexSort');
+    if (sort) sort.onchange = (e) => { _codexFilter.sort = e.target.value; _renderCodexGridFromCache(); };
+    bar.querySelectorAll('.codex-fbtn').forEach((b) => {
+      b.onclick = () => {
+        _codexFilter.rarity = b.dataset.r;
+        bar.querySelectorAll('.codex-fbtn').forEach((x) => x.classList.toggle('on', x === b));
+        _renderCodexGridFromCache();
+      };
+    });
+  }
+
+  async function _renderCodexGridFromCache() {
+    const templates = await loadSanguoTemplates();
+    _renderCodexGrid(templates);
+  }
+
+  function _renderCodexGrid(templates) {
     const grid = $('codexContent');
-    if (grid) {
-      grid.innerHTML = CARD_TEMPLATES.map((tpl) => {
-        const img = getCardImage(tpl.name);
-        const cls = rarityClass(tpl.rarity);
-        const have = ownedNames.has(tpl.name);
-        return `<div class="codex-card ${cls}" onclick="openCodexCard('${esc(tpl.name)}')">
-          ${have ? '' : `<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">${t('codex_not_owned')}</div>`}
-          <div class="cc-img"><img src="${img}" onerror="this.style.display='none'"></div>
-          <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div><div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
-        </div>`;
-      }).join('');
+    if (!grid) return;
+    const ownedNames = new Set(userCards.map((c) => c.name));
+    let list = templates.slice();
+    if (_codexFilter.rarity !== 'all') list = list.filter((tpl) => tpl.rarity === _codexFilter.rarity);
+    if (_codexFilter.q) list = list.filter((tpl) =>
+      (tpl.name + ' ' + (tpl.identity || '') + ' ' + (tpl.title || '')).toLowerCase().includes(_codexFilter.q));
+    if (_codexFilter.sort === 'power') list.sort((a, b) => power(b) - power(a));
+    else if (_codexFilter.sort === 'atk') list.sort((a, b) => Number(b.attack) - Number(a.attack));
+    else if (_codexFilter.sort === 'def') list.sort((a, b) => Number(b.defense) - Number(a.defense));
+    else if (_codexFilter.sort === 'name') list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    if (!list.length) { grid.innerHTML = `<div class="hint">${esc(t('codex_empty'))}</div>`; return; }
+    grid.innerHTML = list.map((tpl, i) => {
+      const img = getCardImage(tpl.name);
+      const cls = rarityClass(tpl.rarity);
+      const have = ownedNames.has(tpl.name);
+      return `<div class="codex-card ${cls} sg-fade-in" style="animation-delay:${Math.min(i * 18, 420)}ms" onclick="openCodexCard('${esc(tpl.name)}')">
+        ${have ? '' : `<div class="sg-card-lv" style="background:rgba(0,0,0,.65);color:#888">${t('codex_not_owned')}</div>`}
+        <div class="cc-img"><img src="${img}" onerror="this.style.display='none'"></div>
+        <div class="cc-foot"><div class="nm">${esc(tpl.name)}</div><div class="rr">${rarityLabel(tpl.rarity)} · ${t('power_label')} ${power(tpl)}</div></div>
+      </div>`;
+    }).join('');
+  }
+
+  async function openCodex() {
+    const templates = await loadSanguoTemplates();
+    renderCodexToolbar();
+    _renderCodexGrid(templates);
+    const ownedNames = new Set(userCards.map((c) => c.name));
+    const total = templates.length;
+    const ownedCount = templates.filter((tpl) => ownedNames.has(tpl.name)).length;
+    const prog = $('codexProgress');
+    if (prog) {
+      const pct = total ? Math.round((ownedCount / total) * 100) : 0;
+      prog.textContent = tf('codex_progress', { own: ownedCount, total }) + ` · ${t('codex_collect')} ${pct}%`;
     }
     const modal = $('codexModal');
     if (modal) modal.classList.add('active');

@@ -220,6 +220,39 @@ const GuessGame = {
 };
 
 // ============================================================
+// 2026-09-29 P1-10 轮盘转盘：SVG 按 payouts 着色，转出哪个赔哪个
+// ============================================================
+function buildWheel(slots, payouts) {
+  const seg = 360 / slots;
+  let paths = '';
+  for (let i = 0; i < slots; i++) {
+    const start = i * seg;
+    const end = (i + 1) * seg;
+    const large = seg > 180 ? 1 : 0;
+    const x1 = 50 + 50 * Math.cos((start - 90) * Math.PI / 180);
+    const y1 = 50 + 50 * Math.sin((start - 90) * Math.PI / 180);
+    const x2 = 50 + 50 * Math.cos((end - 90) * Math.PI / 180);
+    const y2 = 50 + 50 * Math.sin((end - 90) * Math.PI / 180);
+    const d = `M50,50 L${x1},${y1} A50,50 0 ${large},1 ${x2},${y2} Z`;
+    const color = payouts[i] > 0 ? `hsl(${i * 360 / slots}, 70%, 55%)` : '#2a3654';
+    paths += `<path d="${d}" fill="${color}" stroke="#0b0f1a" stroke-width="0.5" data-slot="${i}" style="cursor:pointer"/>`;
+    const mid = start + seg / 2;
+    const tx = 50 + 35 * Math.cos((mid - 90) * Math.PI / 180);
+    const ty = 50 + 35 * Math.sin((mid - 90) * Math.PI / 180);
+    const payoutX = payouts[i] > 0 ? (1 + payouts[i] / 100).toFixed(2) + 'x' : '空';
+    paths += `<text x="${tx}" y="${ty}" fill="#fff" font-size="3.6" text-anchor="middle" dominant-baseline="middle" pointer-events="none">${i}<tspan x="${tx}" dy="3.4">${payoutX}</tspan></text>`;
+  }
+  return `<div class="wheel-wrap"><div class="wheel-pointer"></div><svg viewBox="0 0 100 100" class="wheel-svg" id="wheelSvg">${paths}</svg></div>`;
+}
+/** 旋转转盘到目标槽（指针在顶部 12 点方向） */
+function spinTo(wheelEl, slots, targetSlot) {
+  const seg = 360 / slots;
+  const targetAngle = 360 * 5 - (targetSlot * seg + seg / 2);
+  wheelEl.style.transition = 'transform 4s cubic-bezier(0.17,0.67,0.12,0.99)';
+  wheelEl.style.transform = `rotate(${targetAngle}deg)`;
+}
+
+// ============================================================
 // 游戏 2：幸运轮盘
 // ============================================================
 const RouletteGame = {
@@ -231,31 +264,27 @@ const RouletteGame = {
       throw new Error('引擎参数非法：payouts 长度与 slots 不一致');
     }
     ctx._slot = null;
-    const btns = [];
-    for (let i = 0; i < Number(p.slots); i++) {
-      const m = Number(p.payouts[i] ?? 0);
-      btns.push(
-        `<button class="opt${m === 0 ? ' dim' : ''}" data-slot="${i}">#${i}<small>${(m / 100).toFixed(2)}x</small></button>`,
-      );
-    }
+    const slots = Number(p.slots);
+    const payouts = p.payouts.map(Number);
     return `
       <div class="card">
         <div class="card-title">🎡 选择槽位</div>
-        <div class="desc" style="margin-bottom:8px">共 ${p.slots} 个槽位，标注 0.00x 的为空槽（押中不赔）</div>
-        <div class="opt-grid">${btns.join('')}</div>
+        <div class="desc" style="margin-bottom:8px">共 ${slots} 个槽位，标注 0.00x 的为空槽（押中不赔）</div>
+        ${buildWheel(slots, payouts)}
         <div id="slotPicked" class="desc" style="margin-top:8px;color:var(--accent)"></div>
       </div>`;
   },
 
   bind(ctx) {
     const p = ctx.params;
-    document.querySelectorAll('[data-slot]').forEach((b) => {
+    document.querySelectorAll('#wheelSvg [data-slot]').forEach((b) => {
       b.onclick = () => {
         ctx._slot = Number(b.dataset.slot);
-        document.querySelectorAll('[data-slot]').forEach((x) => x.classList.remove('sel'));
+        document.querySelectorAll('#wheelSvg [data-slot]').forEach((x) => x.classList.remove('sel'));
         b.classList.add('sel');
         const m = Number(p.payouts[ctx._slot] ?? 0);
-        document.getElementById('slotPicked').textContent =
+        const el = document.getElementById('slotPicked');
+        if (el) el.textContent =
           m === 0 ? `已选 #${ctx._slot}（空槽，押中不赔）` : `已选 #${ctx._slot} → 派彩 ${(1 + m / 100).toFixed(2)}x`;
       };
     });
@@ -270,6 +299,8 @@ const RouletteGame = {
     const m = /winning_slot=(\d+)/.exec(out.engineResult || '');
     if (!m) return '';
     const win = Number(m[1]);
+    const wheel = document.getElementById('wheelSvg');
+    if (wheel) spinTo(wheel, Number(ctx.params.slots), win);   // 🟢 2026-09-29 P1-10 旋转到中奖槽
     const hit = win === Number(ctx._slot);
     const mult = Number(ctx.params.payouts[win] ?? 0) / 100;
     return `<div class="big-result">#${win}</div>
@@ -399,7 +430,7 @@ const DiceGame = {
     if (!m) return '';
     const dice = m[1].split(',').map((x) => x.trim()).filter(Boolean);
     return (
-      dice.map((d) => `<div class="dice-face">${d}</div>`).join('') +
+      dice.map((d) => `<div class="dice-face dice-roll result-pop">${d}</div>`).join('') +
       `<div class="desc" style="width:100%">点数和 ${m[2]}（分界 ${m[3]}）</div>`
     );
   },
@@ -529,7 +560,7 @@ const CardGame = {
         .map((h) => {
           const rank = parseInt(h.slice(0, 2), 16);
           const suit = parseInt(h.slice(2, 4), 16);
-          return `<div class="pcard${SUIT_RED[suit] ? ' red' : ''}">${RANK_STR[rank] || rank}<small>${SUITS[suit] || '?'}</small></div>`;
+          return `<div class="pcard flip${SUIT_RED[suit] ? ' red' : ''}">${RANK_STR[rank] || rank}<small>${SUITS[suit] || '?'}</small></div>`;
         })
         .join('') +
       `<div class="desc" style="width:100%">牌型：${HAND_NAMES[r] ?? '未知'}（档位 ${r}）</div>`

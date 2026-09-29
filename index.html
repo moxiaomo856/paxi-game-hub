@@ -575,6 +575,81 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 @media (max-width: 600px) { :root { --sg-card-h: 180px; } }
 @media (max-width: 380px) { :root { --sg-card-h: 150px; } }
 </style>
+
+<!-- ============ P2-12 增强主题与动效（20260929） ============ -->
+<style id="hub-enhance">
+  /* P2-13：内联 SVG 图标统一基线 */
+  .hub-ico { vertical-align: -4px; margin-right: 6px; color: inherit; }
+  .tab .hub-ico { margin-right: 4px; }
+  /* 渐变描边（卡牌 / 卡片 / 浮层） */
+  .card, .sg-card, .codex-card, .modal {
+    position: relative;
+    border: 1px solid transparent;
+    background-image: linear-gradient(#0d1322, #0d1322), linear-gradient(135deg, #2a5cff33, #6ee7b733, #b8860b33);
+    background-origin: border-box; background-clip: padding-box, border-box;
+  }
+  /* 按钮：悬停缩放 + 发光 */
+  .btn { transition: transform .12s ease, box-shadow .2s ease, filter .2s ease; }
+  .btn:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 4px 16px #00000066; }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { box-shadow: 0 0 0 1px #2a5cff55, 0 0 14px #2a5cff33; }
+  .btn-gold { box-shadow: 0 0 0 1px #b8860b55, 0 0 14px #b8860b33; }
+  .btn-danger:hover { box-shadow: 0 0 14px #ff5a5a55; }
+  /* 余额数字变化微动 */
+  @keyframes balPulse { 0%{transform:scale(1)} 40%{transform:scale(1.12);color:#6ee7b7} 100%{transform:scale(1)} }
+  .bal-pulse { animation: balPulse .5s ease; display:inline-block; }
+  /* 骨架屏 */
+  @keyframes skel { 0%{background-position:-200px 0} 100%{background-position:200px 0} }
+  .skeleton { color: transparent !important; border-radius: 6px;
+    background: linear-gradient(90deg,#1a2238 25%,#243150 37%,#1a2238 63%);
+    background-size: 400px 100%; animation: skel 1.2s infinite linear; }
+  /* Toast 队列：靠下居中、可堆叠、自动淡出 */
+  #toastWrap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 9999; pointer-events: none; }
+  .toast { pointer-events: auto; max-width: 86vw; padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; line-height: 1.4; color: #fff; box-shadow: 0 6px 22px #00000066;
+    background: #1b2540; border: 1px solid #2a3756; animation: toastIn .2s ease; }
+  .toast.ok, .toast.success { background: #16351f; border-color: #2f7d4a; }
+  .toast.err, .toast.error { background: #3a1a1a; border-color: #b14b4b; }
+  .toast { transition: opacity .25s ease, transform .25s ease; }
+  .toast-out { opacity: 0; transform: translateY(8px); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  /* 卡牌翻牌 / 骰子 / 通用淡入（P1-11 / P1-9 / P2-12） */
+  @keyframes sgFadeIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  .sg-fade-in { animation: sgFadeIn .35s ease both; }
+  @keyframes resultPop { 0%{transform:scale(.6);opacity:0} 60%{transform:scale(1.12)} 100%{transform:scale(1);opacity:1} }
+  .result-pop { animation: resultPop .4s cubic-bezier(.2,.8,.3,1.2) both; }
+  @keyframes diceRoll { 0%{transform:rotate(0) scale(.7);opacity:0} 50%{transform:rotate(180deg) scale(1.1)} 100%{transform:rotate(360deg) scale(1);opacity:1} }
+  .dice-roll { animation: diceRoll .55s ease both; }
+  @keyframes flipIn { 0%{transform:rotateY(90deg);opacity:0} 100%{transform:rotateY(0);opacity:1} }
+  .flip { animation: flipIn .45s ease both; transform-origin: center; }
+
+  /* ===== P1-9 图鉴工具栏 + 批量分解栏 ===== */
+  .codex-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 4px; }
+  .codex-search { flex: 1 1 160px; min-width: 120px; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid #2a3756; background: #0d1322; color: #e8eefc; font-size: 13px; }
+  .codex-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+  .codex-fbtn { padding: 6px 10px; border-radius: 8px; border: 1px solid #2a3756; background: #0d1322;
+    color: #9fb3d1; font-size: 12px; cursor: pointer; transition: all .15s ease; }
+  .codex-fbtn.on { background: #2a5cff; color: #fff; border-color: #2a5cff; }
+  .codex-sort { padding: 6px 8px; border-radius: 8px; border: 1px solid #2a3756; background: #0d1322; color: #e8eefc; font-size: 12px; }
+  .sg-batch-bar { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px;
+    padding: 8px 10px; border-radius: 10px; background: #14203a; border: 1px solid #2a3756; font-size: 13px; color: #cfe; }
+  .sg-card.sg-sel { outline: 2px solid #6ee7b7; outline-offset: -2px; box-shadow: 0 0 12px #6ee7b755; }
+</style>
+
+<!-- ============ P2-14 PWA（20260929） ============ -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0b0f1a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Paxi 游戏中心" />
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js').catch((e) => console.warn('SW 注册失败:', e.message));
+    });
+  }
+</script>
 </head>
 <body>
 
@@ -626,9 +701,9 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 </div>
 
 <nav class="tabbar">
-  <div class="tab active" data-tab="home"  onclick="switchTab('home')"><span class="ti">🎮</span><span data-i18n="tab_home">大厅</span></div>
-  <div class="tab"        data-tab="wallet" onclick="switchTab('wallet')"><span class="ti">💰</span><span data-i18n="tab_wallet">钱包</span></div>
-  <div class="tab"        data-tab="me"     onclick="switchTab('me')"><span class="ti">👤</span><span data-i18n="tab_me">我的</span></div>
+  <div class="tab active" data-tab="home"  onclick="switchTab('home')"><span class="ti"><svg class="hub-ico" viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="7" width="18" height="11" rx="3.5" fill="currentColor"/><circle cx="8" cy="12.5" r="1.3" fill="#0b0f1a"/><circle cx="12" cy="12.5" r="1.3" fill="#0b0f1a"/><path d="M15.5 11.5h2M16.5 10.5v2" stroke="#0b0f1a" stroke-width="1.3" stroke-linecap="round"/></svg></span><span data-i18n="tab_home">大厅</span></div>
+  <div class="tab"        data-tab="wallet" onclick="switchTab('wallet')"><span class="ti"><svg class="hub-ico" viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="6" width="18" height="13" rx="3" fill="currentColor"/><path d="M3 9.5h18" stroke="#0b0f1a" stroke-width="1.2"/><circle cx="17.5" cy="13" r="1.7" fill="#b8860b"/></svg></span><span data-i18n="tab_wallet">钱包</span></div>
+  <div class="tab"        data-tab="me"     onclick="switchTab('me')"><span class="ti"><svg class="hub-ico" viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="8" r="4" fill="currentColor"/><path d="M4.5 20c.6-4 3.8-6 7.5-6s6.9 2 7.5 6z" fill="currentColor"/></svg></span><span data-i18n="tab_me">我的</span></div>
 </nav>
 
 <!-- ===== 玩法及经济说明弹窗（设置菜单入口） ===== -->
@@ -914,7 +989,7 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 <div class="modal-overlay" id="codexModal">
   <div class="modal">
     <button class="close-btn" onclick="closeCodex()">✕</button>
-    <h2 data-i18n="codex_title">📚 卡牌图鉴</h2>
+    <h2><svg class="hub-ico" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M5 4h6v16H5zM13 4h6v16h-6z" opacity=".85"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7.5 5v14M16.5 5v14"/></svg><span data-i18n="codex_title">卡牌图鉴</span></h2>
     <div class="codex-progress" id="codexProgress"></div>
     <div class="codex-grid" id="codexContent"></div>
   </div>
@@ -969,34 +1044,66 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 </script>
 
 <!-- 🟢 无感签名：CosmJS ESM 供会话私钥直接签 Tx（与 UMD 的 PaxiCosmJS 并存） -->
+<!-- P0-3：优先加载本地 vendor/（离线可用），失败自动回退 jsdelivr CDN -->
 <script type="module">
   window.addEventListener('load', async () => {
+    const LOCAL = ['./vendor/cosmjs-proto-signing.esm.js', './vendor/cosmjs-stargate.esm.js'];
+    const CDN = [
+      'https://cdn.jsdelivr.net/npm/@cosmjs/proto-signing@0.32.4/+esm',
+      'https://cdn.jsdelivr.net/npm/@cosmjs/stargate@0.32.4/+esm'
+    ];
     try {
-      const { DirectSecp256k1Wallet } = await import('https://cdn.jsdelivr.net/npm/@cosmjs/proto-signing@0.32.4/+esm');
-      const { SigningStargateClient, GasPrice } = await import('https://cdn.jsdelivr.net/npm/@cosmjs/stargate@0.32.4/+esm');
-      window.CosmJSSigning = { DirectSecp256k1Wallet, SigningStargateClient, GasPrice };
+      const [a, b] = await Promise.all([
+        import(LOCAL[0]).catch(() => import(CDN[0])),
+        import(LOCAL[1]).catch(() => import(CDN[1]))
+      ]);
+      window.CosmJSSigning = {
+        DirectSecp256k1Wallet: a.DirectSecp256k1Wallet,
+        SigningStargateClient: b.SigningStargateClient,
+        GasPrice: b.GasPrice
+      };
       window.dispatchEvent(new Event('cosmjs-ready'));
-    } catch (e) { console.warn('CosmJS ESM 加载失败:', e.message); }
+    } catch (e) {
+      console.warn('CosmJS ESM 加载失败（本地与 CDN 均失败）:', e && e.message);
+      window.dispatchEvent(new Event('cosmjs-failed'));
+      if (typeof showToast === 'function') showToast('签名库加载失败：请检查网络或强制刷新', 'error');
+    }
   });
 </script>
 <!-- 🟢 noble 加密库（会话密钥签名用）；⚠️ 必须注入 hmacSha256Sync -->
 <script type="module">
-  import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-  import { sha256 } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/sha256/+esm';
-  import { ripemd160 } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/ripemd160/+esm';
-  import { hmac } from 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/hmac/+esm';
-
-  // 🔴 关键：noble-secp256k1 v2.x 不再内置 HMAC，必须手动注入。
-  //    不加这行，secp.sign() 会抛 "etc.hmacSha256Sync not set"。
-  secp.etc.hmacSha256Sync = (key, ...msgs) =>
-    hmac(sha256, key, secp.etc.concatBytes(...msgs));
-
-  window.nobleSecp = secp;
-  window.nobleSha256 = sha256;
-  window.nobleRipemd160 = ripemd160;
-  window.dispatchEvent(new Event('noble-ready'));
+  (async () => {
+    const L = {
+      secp: './vendor/noble-secp256k1.esm.js',
+      sha256: './vendor/noble-hashes-sha256.esm.js',
+      ripemd160: './vendor/noble-hashes-ripemd160.esm.js',
+      hmac: './vendor/noble-hashes-hmac.esm.js'
+    };
+    const C = {
+      secp: 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm',
+      sha256: 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/sha256/+esm',
+      ripemd160: 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/ripemd160/+esm',
+      hmac: 'https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/hmac/+esm'
+    };
+    const imp = (k) => import(L[k]).catch(() => import(C[k]));
+    try {
+      const [secpMod, sha, rip, hm] = await Promise.all([imp('secp'), imp('sha256'), imp('ripemd160'), imp('hmac')]);
+      // 🔴 关键：noble-secp256k1 v2.x 不再内置 HMAC，必须手动注入。
+      //    不加这行，secp.sign() 会抛 "etc.hmacSha256Sync not set"。
+      secpMod.etc.hmacSha256Sync = (key, ...msgs) =>
+        hm.hmac(sha.sha256, key, secpMod.etc.concatBytes(...msgs));
+      window.nobleSecp = secpMod;
+      window.nobleSha256 = sha.sha256;
+      window.nobleRipemd160 = rip.ripemd160;
+      window.dispatchEvent(new Event('noble-ready'));
+    } catch (e) {
+      console.warn('noble 加密库加载失败（本地与 CDN 均失败）:', e && e.message);
+      window.dispatchEvent(new Event('noble-failed'));
+      if (typeof showToast === 'function') showToast('加密库加载失败：请检查网络或强制刷新', 'error');
+    }
+  })();
 </script>
-<script>window.HUB_BUILD = '20260928-3';</script>
+<script>window.HUB_BUILD = '20260929-1';</script>
 <script src="shared.js?v=20260922-1"></script>      <!-- 网络/交易基础 -->
 <script src="session.js?v=20260922-1"></script>     <!-- 无感签名（依赖 shared） -->
 <script src="games.js?v=20260922-1"></script>       <!-- 通用引擎 + 游戏注册表 -->

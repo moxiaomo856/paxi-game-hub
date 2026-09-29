@@ -552,9 +552,13 @@ Session.ensureSeamless = async function () {
 //   StdFee.granter = 主钱包地址，链上 Feegrant ante handler 据此扣主钱包余额。
 Session.sendTxWithSession = async function(messages, memo = '', gasLimitOpt) {
   // 🟢 串行队列：会话账户只有一把 sequence 锁，连续两笔若都取同一 sequence 必冲突。
-  //    用 Promise 链串行化（不再像旧版那样 .catch(()=>{}) 吞掉错误）。
+  //    用 Promise 链串行化。🔴 修复（2026-09-29）：一笔失败后不能让整条队列变成
+  //    rejected —— 否则后续所有无感交易全部挂死。改为：把本次 run 单独返回给调用方
+  //    （让它拿到真实错误去提示用户），而队列指针用 run.catch(()=>{}) 吞掉错误继续往后走。
   if (!Session._txQueue) Session._txQueue = Promise.resolve();
-  return Session._txQueue = Session._txQueue.then(() => Session._sendTxWithSessionCore(messages, memo, gasLimitOpt));
+  const run = Session._txQueue.then(() => Session._sendTxWithSessionCore(messages, memo, gasLimitOpt));
+  Session._txQueue = run.catch(() => {}); // 队列继续，错误交给调用方
+  return run;
 };
 
 Session._sendTxWithSessionCore = async function(messages, memo = '', gasLimitOpt) {
@@ -893,7 +897,7 @@ Session.selfCheck = async function () {
   const r = { build: (typeof window !== 'undefined' && window.HUB_BUILD) || '未知', items: [] };
   const add = (name, ok, detail) => r.items.push({ name, ok: ok === null ? 'warn' : (ok ? 'ok' : 'fail'), detail });
 
-  add('页面版本 build', !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260918-6' ? '' : '（⚠️ 不是最新版，浏览器可能缓存了旧脚本，请强制刷新）'));
+  add('页面版本 build', !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260929-1' ? '' : '（⚠️ 不是最新版，浏览器可能缓存了旧脚本，请强制刷新）'));
   add('CosmJS 签名库', !!window.CosmJSSigning, window.CosmJSSigning ? '已加载' : '未加载，无感签名无法工作');
   add('加密库 noble', !!(window.nobleSecp && window.nobleSha256 && window.nobleRipemd160), '');
   add('主钱包', !!(state.wallet && state.wallet.address), (state.wallet && state.wallet.address) || '未连接');

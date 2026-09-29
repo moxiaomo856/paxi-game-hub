@@ -9,6 +9,7 @@
 let currentTab = 'home';
 let ctx = null;          // 当前游戏的上下文
 let gameClaimBal = '0';  // 游戏页「领取奖励」卡片的合约内余额（下注用的是 TKCC）
+let autoBetStop = false; // 2026-09-29 P1-7：连续下注停止标志
 
 // ============================================================
 // 日志
@@ -70,7 +71,7 @@ const HUB_I18N = {
     // —— 玩法及经济说明弹窗 / 卡牌弹窗（静态 UI 文案）——
     menu_settings: '设置',
     eco_title: '📖 玩法及经济说明',
-    codex_title: '📚 卡牌图鉴',
+    codex_title: '卡牌图鉴',
     detail_rarity: '稀有度', detail_faction: '阵营', detail_atk: '攻击',
     detail_def: '防御', detail_total: '共计', detail_star: '⭐ 星级',
     btn_star_up: '⭐ 升1星', btn_star_frag: '✨ 碎片升星', btn_level_up: '💠 升级',
@@ -114,6 +115,14 @@ const HUB_I18N = {
     bet_title: '💵 下注', bet_min: '最小', bet_max: '最大', bet_x2: '翻倍', bet_half: '减半',
     btn_play: '开始游戏', btn_submitting: '提交中…',
     limit_single: '单局限额', limit_daily: '每日上限',
+    // —— 2026-09-29 P1-5/6/7：历史·下注面板·连续下注 ——
+    hist_title: '📜 最近对局', hist_empty: '暂无记录', hist_win: '赢', hist_lose: '输',
+    hist_bet: '下注', hist_payout: '派彩', hist_result: '结果', hist_time: '时间',
+    stat_today: '今日输赢', stat_streak: '连胜', stat_total_bet: '总下注', stat_roi: '回报率',
+    bet_slider: '滑动调整', bet_pct: '比例', bet_est: '预计最大派彩', bet_daily_left: '今日剩余可下',
+    chip_10: '10', chip_50: '50', chip_100: '100', chip_500: '500',
+    auto_title: '🔁 连续下注', auto_n: '局数', auto_start: '开始自动', auto_stop: '停止',
+    auto_progress: '进度', auto_done: '自动下注结束', auto_stopped: '已停止',
     // —— 游戏页「领取奖励」（大厅游戏赢的币即时进合约内部余额，需在此提现回钱包）——
     claim_title: '🎁 领取奖励',
     claim_desc: '本游戏赢的币会先记在<b>合约内部余额</b>，不会自动到钱包。点下方按钮即可全部取回钱包（也可部分提现）。',
@@ -180,7 +189,7 @@ const HUB_I18N = {
     // —— economy / card modals (static UI text) ——
     menu_settings: 'Settings',
     eco_title: '📖 Gameplay & Economy',
-    codex_title: '📚 Card Codex',
+    codex_title: 'Card Codex',
     detail_rarity: 'Rarity', detail_faction: 'Faction', detail_atk: 'ATK',
     detail_def: 'DEF', detail_total: 'Total', detail_star: '⭐ Star',
     btn_star_up: '⭐ +1 Star', btn_star_frag: '✨ Fragment Star', btn_level_up: '💠 Level Up',
@@ -223,6 +232,14 @@ const HUB_I18N = {
     bet_title: '💵 Bet', bet_min: 'Min', bet_max: 'Max', bet_x2: '×2', bet_half: '½',
     btn_play: 'Play', btn_submitting: 'Submitting…',
     limit_single: 'Bet Range', limit_daily: 'Daily Limit',
+    // —— 2026-09-29 P1-5/6/7：history · bet panel · auto-bet ——
+    hist_title: '📜 Recent Rounds', hist_empty: 'No records yet', hist_win: 'Win', hist_lose: 'Lose',
+    hist_bet: 'Bet', hist_payout: 'Payout', hist_result: 'Result', hist_time: 'Time',
+    stat_today: 'Today P/L', stat_streak: 'Streak', stat_total_bet: 'Total Bet', stat_roi: 'ROI',
+    bet_slider: 'Slide', bet_pct: 'Pct', bet_est: 'Max est. payout', bet_daily_left: 'Daily left',
+    chip_10: '10', chip_50: '50', chip_100: '100', chip_500: '500',
+    auto_title: '🔁 Auto Bet', auto_n: 'Rounds', auto_start: 'Start', auto_stop: 'Stop',
+    auto_progress: 'Progress', auto_done: 'Auto-bet finished', auto_stopped: 'Stopped',
     claim_title: '🎁 Claim Reward',
     claim_desc: 'Winnings are credited to your <b>in-contract balance</b>, not your wallet. Tap below to withdraw everything back to your wallet.',
     claim_btn: 'Claim All',
@@ -379,33 +396,25 @@ function updateHeader() {
   }
 }
 
+// 🟢 2026-09-29 P0-4：三路余额并发查询（Promise.all），减少串行等待；
+//    任一失败不阻塞其余，缺省回落 0。
 async function refreshBalances() {
   if (!state.connected) return;
   try {
-    // 链上余额
-    const b = await fetchAPI(`/cosmos/bank/v1beta1/balances/${state.wallet.address}`);
-    const paxi = (b.balances || []).find((x) => x.denom === NETWORK.denom);
+    const [b, g, t] = await Promise.all([
+      fetchAPI(`/cosmos/bank/v1beta1/balances/${state.wallet.address}`).catch(() => null),
+      queryContract({ balance: { address: state.wallet.address, token: null } }).catch(() => null),
+      CONTRACTS.tkcc
+        ? queryContract({ balance: { address: state.wallet.address, token: CONTRACTS.tkcc } }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    const paxi = (b && b.balances || []).find((x) => x.denom === NETWORK.denom);
     state.chainBalance = fromRawUnits(paxi ? paxi.amount : '0');
+    state.gameBalance = fromRawUnits(g ? (g.amount || '0') : '0');
+    state.tkccBalance = fromRawUnits(t ? (t.amount || '0') : '0');
+
     $('hdrBal').textContent = state.chainBalance + ' P';
-
-    // 合约内余额
-    const g = await queryContract({ balance: { address: state.wallet.address, token: null } });
-    state.gameBalance = fromRawUnits(g.amount || '0');
-
-    // 合约内 TKCC（查游戏合约带 token 参数，不是查代币合约的钱包余额）
-    if (CONTRACTS.tkcc) {
-      try {
-        const t = await queryContract({
-          balance: { address: state.wallet.address, token: CONTRACTS.tkcc },
-        });
-        state.tkccBalance = fromRawUnits(t.amount || '0');
-      } catch (e) {
-        state.tkccBalance = '0';
-      }
-    } else {
-      state.tkccBalance = '0';
-    }
-
     // 刷新页面上的显示
     if ($('bChain')) $('bChain').textContent = state.chainBalance;
     if ($('bGame')) $('bGame').textContent = state.gameBalance;
@@ -436,16 +445,16 @@ function switchTab(tab) {
 
 // ============================================================
 // 大厅展示名单与顺序（2026-09-28：卡牌两个变体隐藏，猜数字保持显示）
-//   顺序：三国 → 抽奖 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
-//   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）、
-//   轮盘 roulette / roulette_vip。
+//   2026-09-29：轮盘 roulette / roulette_vip 重新放出（用户要看效果）
+//   顺序：三国 → 抽奖 → 骰宝 → 轮盘·经典 → 轮盘·VIP → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
+//   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）。
 //   ⚠️ 注意：只有链上 list_games 已注册 game_id 的才能放出来，
 //      否则 openGame 会在 game_engine_config_query / game_limit 处报「未配置」。
 //      当前链上已注册 8 个：card_rank, card_vs_dealer, crazydice, dice,
 //      guess, guess_elite, roulette, roulette_vip。
 //   想增删游戏：改这个数组即可，顺序即大厅卡片顺序（链上游戏仍在，随时可放回）。
 // ============================================================
-const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice'];
+const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'roulette', 'roulette_vip', 'guess', 'guess_elite', 'crazydice'];
 
 // ============================================================
 // 外部跳转类「游戏」：不走链上引擎，点击直接开外链（不依赖合约、不用会话密钥）
@@ -1114,7 +1123,12 @@ async function openGame(gameId) {
     if (!lim.limit) throw new Error(hubT('limit_not_configured')(gameId));
     if (!lim.limit.enabled) throw new Error(hubT('game_disabled')(gameId));
 
-    const engineKey = Object.keys(cfg.config.params || {})[0];
+    // 🟢 2026-09-29 P0-2 引擎识别兼容：优先用链上显式字段 cfg.config.engine，
+    //    回退到按 params 的 key 取（旧合约没 engine 字段时不影响）。
+    //    注意：g.meta.engine 是前端注册表写死的值，必须与链上一致，否则抛引擎不匹配。
+    const engineKey = (cfg.config && typeof cfg.config.engine === 'string' && cfg.config.engine)
+      ? cfg.config.engine
+      : Object.keys(cfg.config.params || {})[0];
     if (engineKey !== g.meta.engine) {
       throw new Error(hubT('engine_mismatch')(g.meta.engine, engineKey));
     }
@@ -1183,32 +1197,101 @@ async function openGame(gameId) {
         <div class="card-title">${hubT('bet_title')}</div>
         <div class="field">
           <input type="text" id="betAmt" inputmode="decimal" value="${fromRawUnits(lim.limit.min_bet)}" />
+          <input type="range" id="betSlider" class="bet-slider"
+            min="${fromRawUnits(lim.limit.min_bet)}" max="${fromRawUnits(lim.limit.max_bet)}"
+            step="1" value="${fromRawUnits(lim.limit.min_bet)}" />
           <div class="quick-row">
             <button class="quick" data-bet="${fromRawUnits(lim.limit.min_bet)}">${hubT('bet_min')}</button>
             <button class="quick" data-bet="${fromRawUnits(lim.limit.max_bet)}">${hubT('bet_max')}</button>
             <button class="quick" data-bet="x2">${hubT('bet_x2')}</button>
             <button class="quick" data-bet="half">${hubT('bet_half')}</button>
           </div>
+          <div class="quick-row">
+            <button class="quick chip" data-chip="10">${hubT('chip_10')}</button>
+            <button class="quick chip" data-chip="50">${hubT('chip_50')}</button>
+            <button class="quick chip" data-chip="100">${hubT('chip_100')}</button>
+            <button class="quick chip" data-chip="500">${hubT('chip_500')}</button>
+            <button class="quick" data-pct="10">10%</button>
+            <button class="quick" data-pct="25">25%</button>
+            <button class="quick" data-pct="50">50%</button>
+            <button class="quick" data-pct="max">${hubT('all_btn')}</button>
+          </div>
+          <div class="bet-info">
+            <span>${hubT('bet_est')}: <b id="estOut">—</b></span>
+            <span>${hubT('bet_daily_left')}: <b id="dailyLeft">${
+              (() => { const md = BigInt(lim.limit.max_daily_bet); const used = BigInt((state.sessInfo && state.sessInfo.daily_used) || '0'); const left = md > used ? md - used : 0n; return fromRawUnits(left.toString()); })()
+            } TKCC</b></span>
+          </div>
         </div>
         <button class="btn btn-gold" id="btnPlay">${hubT('btn_play')}</button>
+      </div>
+
+      <div class="card" id="autoCard">
+        <div class="card-title">${hubT('auto_title')}</div>
+        <div class="field" style="display:flex;align-items:center;gap:8px">
+          <input type="number" id="autoN" class="input" style="width:80px" min="1" max="50" value="5" />
+          <span>${hubT('auto_n')}</span>
+          <button class="btn btn-ghost" id="btnAutoStart">${hubT('auto_start')}</button>
+          <button class="btn btn-ghost" id="btnAutoStop" style="display:none">${hubT('auto_stop')}</button>
+          <span id="autoProgress" class="auto-prog"></span>
+        </div>
+        <div class="desc" style="margin-top:6px">${hubT('auto_title')} · 每局重新取链上 nonce，串行执行，受余额/限额约束；随时可停止。</div>
+      </div>
+
+      <div class="card" id="histCard">
+        <div class="card-title">${hubT('hist_title')}</div>
+        <div id="histBody"></div>
       </div>
 
       <div class="card"><div class="card-title">${hubT('log_title')}</div><div class="log" id="log"></div></div>`;
 
     g.bind(ctx);
+    const maxBet = Number(fromRawUnits(lim.limit.max_bet));
+    const setBet = (val) => {
+      let v = Number(val);
+      if (!isFinite(v) || v < 0) v = 0;
+      v = Math.min(v, maxBet);
+      if ($('betAmt')) $('betAmt').value = String(v);
+      if ($('betSlider')) $('betSlider').value = String(v);
+      updateEstPayout();
+    };
     document.querySelectorAll('[data-bet]').forEach((b) => {
       b.onclick = () => {
         const v = b.dataset.bet;
-        const cur = Number($('betAmt').value) || 0;
-        if (v === 'x2') $('betAmt').value = String(cur * 2);
-        else if (v === 'half') $('betAmt').value = String(cur / 2);
-        else $('betAmt').value = v;
+        const cur = Number($('betAmt')?.value) || 0;
+        if (v === 'x2') setBet(cur * 2);
+        else if (v === 'half') setBet(cur / 2);
+        else setBet(v);
       };
     });
+    const slider = $('betSlider');
+    if (slider) slider.oninput = () => { if ($('betAmt')) $('betAmt').value = slider.value; updateEstPayout(); };
+    document.querySelectorAll('[data-chip]').forEach((b) => { b.onclick = () => setBet(b.dataset.chip); });
+    document.querySelectorAll('[data-pct]').forEach((b) => {
+      b.onclick = () => { const p = b.dataset.pct; setBet(p === 'max' ? maxBet : (maxBet * Number(p) / 100)); };
+    });
+    const betInput = $('betAmt');
+    if (betInput) betInput.oninput = updateEstPayout;
+    updateEstPayout();   // 🟢 2026-09-29 P1-6 初始估算
+
     $('btnPlay').onclick = doPlay;
+    // 🟢 2026-09-29 P1-7 连续下注
+    const autoStart = $('btnAutoStart'), autoStop = $('btnAutoStop');
+    if (autoStart) autoStart.onclick = () => {
+      autoBetStop = false;
+      autoStart.style.display = 'none';
+      if (autoStop) autoStop.style.display = '';
+      autoBetLoop($('autoN') ? $('autoN').value : 5).then(() => {
+        if (autoStart) autoStart.style.display = '';
+        if (autoStop) autoStop.style.display = 'none';
+      });
+    };
+    if (autoStop) autoStop.onclick = () => { autoBetStop = true; };
+
     const gcBtn = $('btnGameClaim');
     if (gcBtn) gcBtn.onclick = claimGameReward;
     refreshGameClaim();   // 异步拉合约内余额，有余额才显示「领取奖励」卡片
+    renderHistory(ctx.id);   // 🟢 2026-09-29 P1-5 渲染历史
     log(hubT('ready_log')(gname, engineKey), 'ok');
   } catch (e) {
     log(hubT('load_fail_log') + e.message, 'err');
@@ -1234,9 +1317,9 @@ async function quickRegister() {
 }
 
 async function doPlay() {
-  if (!ctx) return;
+  if (!ctx) return false;
   const btn = $('btnPlay');
-  let amt;
+  let amt, ok = false;
   try {
     amt = $('betAmt').value.trim();
     if (!amt || Number(amt) <= 0) throw new Error(hubT('toast_input_amount'));
@@ -1313,6 +1396,9 @@ async function doPlay() {
     const html = ctx.game.result ? ctx.game.result(ctx, out) : '';
     $('stage').innerHTML = html || `<div class="big-result">${out.won ? hubT('you_win') : hubT('you_lose')}</div>`;
 
+    // 🟢 2026-09-29 P1-11：赢/输震动反馈
+    if (navigator.vibrate) { try { navigator.vibrate(out.won ? [30, 50, 30] : 80); } catch (e) {} }
+
     renderTxBreakdown(out, hash, tx.height, betU);
 
     log(
@@ -1323,9 +1409,19 @@ async function doPlay() {
     );
     if (out.engineResult) log(`${hubLang() === 'en' ? 'Result' : '结果'}: ${out.engineResult}`, 'info');
 
+    // 🟢 2026-09-29 P1-5：记录本局到本地历史（纯前端，不发链上）
+    pushHistory(ctx.id, {
+      won: out.won,
+      bet: amt,
+      payout: fromRawUnits(out.payout || '0'),
+      result: out.engineResult || (out.won ? 'win' : 'lose'),
+    });
+    renderHistory(ctx.id);
+
     await refreshBalances();
     const gb = $('gBal');
     if (gb) gb.textContent = state.gameBalance;
+    ok = true;   // 🟢 2026-09-29：只有走到这里才算成功，供连续下注判断
   } catch (e) {
     log(hubT('fail_log') + e.message, 'err');
     showToast(e.message, 'error');
@@ -1335,6 +1431,39 @@ async function doPlay() {
     btn.textContent = hubT('btn_play');
     refreshGameClaim();   // 赢局派彩即时进合约内部余额，刷新可领取额
   }
+  return ok;
+}
+
+// ============================================================
+// 2026-09-29 P1-6 / P1-7 辅助函数
+// ============================================================
+/** 根据当前下注额估算最大派彩（依赖 ctx.params.multiplier，无则显示 —） */
+function updateEstPayout() {
+  const el = $('estOut');
+  if (!el || !ctx) return;
+  const amt = Number($('betAmt').value) || 0;
+  const p = (ctx && ctx.params) || {};
+  const mult = (typeof p.multiplier === 'number') ? p.multiplier
+    : (typeof p.multipliers === 'number') ? p.multipliers
+    : (Array.isArray(p.multipliers) ? Math.max(0, ...p.multipliers) : null);
+  el.textContent = mult ? (amt * mult).toFixed(2) + ' TKCC' : '—';
+}
+
+/** 连续下注：串行执行 N 局，每局重取 nonce（doPlay 内部已 syncFromChain），
+ *  失败/停止即终止。绝不暗示必胜。 */
+async function autoBetLoop(n) {
+  autoBetStop = false;
+  const total = Math.min(Math.max(Number(n) || 1, 1), 50);
+  const prog = $('autoProgress');
+  for (let i = 1; i <= total; i++) {
+    if (autoBetStop) { showToast(hubT('auto_stopped'), 'error'); break; }
+    if (prog) prog.textContent = `${i}/${total}`;
+    const ok = await doPlay();
+    if (!ok) { showToast(hubT('auto_stopped') + '：' + hubT('fail_log').replace(/:$/, ''), 'error'); break; }
+    if (i < total) await new Promise((r) => setTimeout(r, 600));
+  }
+  if (prog) prog.textContent = '';
+  if (!autoBetStop) showToast(hubT('auto_done'), 'success');
 }
 
 // ============================================================
@@ -1391,6 +1520,70 @@ function renderTxBreakdown(out, hash, height, betU) {
   $('bdHash').textContent = hash ? `${hash.slice(0, 12)}…${hash.slice(-6)}` : '—';
   $('bdHeight').textContent = height || '—';
   card.style.display = '';
+}
+
+// ============================================================
+// 2026-09-29 P1-5：每局历史 + 个人统计（纯前端，localStorage，不依赖合约）
+//   只存最近 50 局，不触碰链上/合约，不受「不能改合约」限制。
+// ============================================================
+const HISTORY_KEY = 'paxi_hub_history_v1';
+function pushHistory(gameId, item) {
+  try {
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}');
+    const list = all[gameId] || [];
+    list.unshift(Object.assign({ time: Date.now() }, item));
+    all[gameId] = list.slice(0, 50);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(all));
+  } catch (e) { /* 隐私模式等写入失败，忽略即可 */ }
+}
+function getHistory(gameId) {
+  try { return (JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}')[gameId]) || []; } catch (e) { return []; }
+}
+/** 汇总今日输赢 / 连胜 / 总下注 / 回报率 */
+function computeStats(gameId) {
+  const hist = getHistory(gameId);
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const todayMs = dayStart.getTime();
+  let todayWin = 0n, totalBet = 0n, wonBet = 0n, streak = 0, maxStreak = 0;
+  for (const h of hist) {
+    const bet = BigInt(Math.round(Number(h.bet) * 1e6));
+    const payout = BigInt(Math.round(Number(h.payout || '0') * 1e6));
+    totalBet += bet;
+    if (h.time >= todayMs) todayWin += (payout - bet);
+    if (h.won) { wonBet += bet; streak++; maxStreak = Math.max(maxStreak, streak); }
+    else streak = 0;
+  }
+  const roi = totalBet > 0n ? Number((wonBet * 10000n) / totalBet) / 100 : 0; // 赢局本金占比（%）
+  return {
+    todayWinStr: fromRawUnits(todayWin.toString()),
+    streak: maxStreak,
+    totalBetStr: fromRawUnits(totalBet.toString()),
+    roi: roi.toFixed(1) + '%',
+  };
+}
+/** 渲染历史卡片（最近 15 局 + 统计行） */
+function renderHistory(gameId) {
+  const box = $('histBody');
+  if (!box) return;
+  const hist = getHistory(gameId).slice(0, 15);
+  const st = computeStats(gameId);
+  const rows = hist.length ? hist.map((h) => {
+    const d = new Date(h.time);
+    const t = `${String(d.getMonth() + 1)}/${String(d.getDate())} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const w = h.won;
+    return `<div class="kv hist-row ${w ? 'h-win' : 'h-lose'}">
+      <span class="k">${w ? '🟢' : '🔴'} ${h.bet} TKCC</span>
+      <span class="v">${w ? '+' + (h.payout || '0') : '0'} · ${esc(String(h.result || (w ? 'win' : 'lose')).slice(0, 18))}</span>
+      <span class="t">${t}</span>
+    </div>`;
+  }).join('') : `<div class="desc">${hubT('hist_empty')}</div>`;
+  box.innerHTML =
+    `<div class="stat-row">
+      <span>📈 ${hubT('stat_today')}: <b>${st.todayWinStr} TKCC</b></span>
+      <span>🔥 ${hubT('stat_streak')}: <b>${st.streak}</b></span>
+      <span>💰 ${hubT('stat_total_bet')}: <b>${st.totalBetStr}</b></span>
+      <span>📊 ${hubT('stat_roi')}: <b>${st.roi}</b></span>
+    </div>` + rows;
 }
 
 // ============================================================

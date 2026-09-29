@@ -340,13 +340,22 @@ function shortAddr(a, n = 6) {
 }
 
 function showToast(msg, type = '') {
-  const old = document.querySelector('.toast');
-  if (old) old.remove();
+  let wrap = document.getElementById('toastWrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'toastWrap';
+    document.body.appendChild(wrap);
+  }
   const el = document.createElement('div');
   el.className = 'toast ' + type;
   el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  wrap.appendChild(el);
+  // 队列上限 4 条，避免堆叠过多遮挡界面
+  while (wrap.children.length > 4) wrap.removeChild(wrap.firstChild);
+  setTimeout(() => {
+    el.classList.add('toast-out');
+    setTimeout(() => el.remove(), 260);
+  }, 3200);
 }
 
 /**
@@ -517,6 +526,22 @@ async function queryAnyContract(contractAddr, msg) {
 /** 查询游戏合约 */
 async function queryContract(msg) {
   return queryAnyContract(CONTRACTS.game, msg);
+}
+
+// 🟢 2026-09-29 P0-4：短 TTL 查询缓存，减少重复 LCD 往返（配置类查询受益最大）。
+//   只用于【结构性、会话内不变】的查询（game_config / game_limit / list_games /
+//   sanguo_templates / token_info / list_prc20 等）。余额、会话、round 等易变查询
+//   仍走 queryContract（不缓存），避免下注后看到过期余额。
+const _qCache = new Map();
+async function queryContractCached(msg, ttl = 5000) {
+  const key = JSON.stringify(msg);
+  const now = Date.now();
+  const hit = _qCache.get(key);
+  if (hit && now - hit.at < ttl) return hit.data;
+  const data = await queryContract(msg);
+  _qCache.set(key, { at: now, data });
+  if (_qCache.size > 200) _qCache.clear(); // 防止内存无限增长
+  return data;
 }
 
 /** PRC-20：代币元信息 { name, symbol, decimals, total_supply } */
@@ -839,6 +864,10 @@ async function sendTx(messages, memo = '', gasLimitOpt) {
 /** 轮询上链结果（BROADCAST_MODE_SYNC 只保证进 mempool） */
 async function waitForTx(txhash, timeoutMs = 30000) {
   const t0 = Date.now();
+  // 🟢 2026-09-29 P0-4：指数退避（1s → 1.5s → 2s → 3s…），减少无意义高频轮询，
+  //    首发确认更快、移动端弱网下更省电。
+  const delays = [1000, 1500, 2000, 3000, 3000, 3000];
+  let attempt = 0;
   while (Date.now() - t0 < timeoutMs) {
     try {
       const d = await fetchAPI(`/cosmos/tx/v1beta1/txs/${txhash}`);
@@ -850,7 +879,10 @@ async function waitForTx(txhash, timeoutMs = 30000) {
     } catch (e) {
       if (e.message && !/API 404|API 400/.test(e.message)) throw e;
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    const wait = delays[Math.min(attempt, delays.length - 1)];
+    attempt++;
+    if (Date.now() - t0 + wait >= timeoutMs) break;
+    await new Promise((r) => setTimeout(r, wait));
   }
   throw new Error('交易确认超时，请稍后在浏览器中查看该哈希');
 }
