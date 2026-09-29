@@ -1330,7 +1330,9 @@
   /**
    * 渲染「一键迁移」入口。
    *
-   * 展示条件（三者都满足才显示）：
+   * 🟢 2026-09-29 起永久隐藏：所有玩家均已迁移完成（函数入口直接 return）。
+   *
+   * 原展示条件（三者都满足才显示）：
    *   1. 已连接钱包；
    *   2. 本会话还没迁移过；
    *   3. 新合约的迁移白名单里包含 OLD_SANGUO_CONTRACT。
@@ -1339,6 +1341,9 @@
    * 就知道能搬过来什么。预览失败不影响入口展示（老合约可能暂时不可达）。
    */
   async function renderSanguoMigrationEntry() {
+    // 🟢 2026-09-29：所有玩家均已迁移完成，迁移入口永久隐藏（卡片默认 display:none）。
+    //    需要恢复时：删除下面这行 return 即可，原展示逻辑保持不动。
+    return;
     const card = $('sgMigrateCard');
     if (!card) return;
     if (!state.wallet || migrationDone) return;
