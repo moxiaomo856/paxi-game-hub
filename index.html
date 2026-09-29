@@ -365,9 +365,9 @@ td.num { font-family: ui-monospace, monospace; text-align: right; white-space: n
 .sg-stat .lb { display:block; font-size:10px; color:#8a7a6a; margin-top:2px; }
 
 /* 三国页内标签条（抽卡/对战/我的卡牌…） */
-#sgTabs { display:flex; gap:4px; overflow-x:auto; margin-bottom:10px; background: rgba(0,0,0,0.25); padding:4px; border-radius:14px; border:1px solid rgba(200,160,100,0.12); -webkit-overflow-scrolling:touch; scrollbar-width:none; }
-#sgTabs::-webkit-scrollbar { display:none; }
-.sg-tab { flex:1; min-width:64px; width:auto; min-height:auto; background:transparent; border:none; color:#8a7a6a; padding:9px 6px; font-size:13px; font-family:inherit; cursor:pointer; border-radius:10px; transition:.2s; white-space:nowrap; }
+/* 🟢 2026-09-29：页签改为两行自动换行（手机不用横向滑动）；每行约 4 个 */
+#sgTabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; background: rgba(0,0,0,0.25); padding:6px; border-radius:14px; border:1px solid rgba(200,160,100,0.12); }
+.sg-tab { flex:1 1 calc(25% - 6px); min-width:0; width:auto; min-height:auto; background:transparent; border:none; color:#8a7a6a; padding:9px 4px; font-size:13px; font-family:inherit; cursor:pointer; border-radius:10px; transition:.2s; white-space:nowrap; text-align:center; overflow:hidden; text-overflow:ellipsis; }
 .sg-tab:hover { color:#e8d5b8; background: rgba(255,255,255,0.04); }
 .sg-tab.active { background: linear-gradient(135deg, rgba(184,134,11,0.35), rgba(255,200,50,0.2)); color:#ffd700; box-shadow:0 2px 10px rgba(255,200,50,0.15); }
 

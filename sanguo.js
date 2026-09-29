@@ -825,14 +825,15 @@
   }
 
   // 七页签（完整玩法），全部走无感签名；标签用 t() 动态取，跟随大厅语言切换
+  // 顺序（2026-09-29 调整）：抽卡 → 我的卡 → AI对战 → PVP → 混战 → 养成 → 提案 → 收入对账(管理员)
   const SANGUO_TABS = [
     { id: 'draw',      key: 'tab_draw' },
     { id: 'mycards',   key: 'tab_mycards' },
     { id: 'ai',        key: 'tab_ai' },
-    { id: 'cultivate', key: 'tab_cultivate' },
-    { id: 'proposal',  key: 'tab_proposal' },
     { id: 'pvp',       key: 'tab_pvp' },
     { id: 'royale',    key: 'tab_royale' },
+    { id: 'cultivate', key: 'tab_cultivate' },
+    { id: 'proposal',  key: 'tab_proposal' },
     { id: 'ledger',    key: 'tab_ledger', admin: true },
   ];
 
