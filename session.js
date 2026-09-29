@@ -894,49 +894,60 @@ Session.enableSeamlessMode = async function () {
 // 以后再出问题，看这一份报告就能定位到底断在哪一环，不必再靠猜。
 // ============================================================================
 Session.selfCheck = async function () {
-  const r = { build: (typeof window !== 'undefined' && window.HUB_BUILD) || '未知', items: [] };
+  // 🟢 2026-09-29：自检条目改走大厅 i18n（hubT 由 app.js 全局提供；session.js 先加载，
+  //    故这里做安全兜底，取不到就原样返回 key，不影响功能）。
+  const T = (k, ...args) => {
+    try {
+      if (typeof window !== 'undefined' && typeof window.hubT === 'function') {
+        const v = window.hubT(k);
+        return typeof v === 'function' ? v(...args) : (v != null ? v : k);
+      }
+    } catch (e) {}
+    return k;
+  };
+  const r = { build: (typeof window !== 'undefined' && window.HUB_BUILD) || T('sc_unknown'), items: [] };
   const add = (name, ok, detail) => r.items.push({ name, ok: ok === null ? 'warn' : (ok ? 'ok' : 'fail'), detail });
 
-  add('页面版本 build', !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260929-1' ? '' : '（⚠️ 不是最新版，浏览器可能缓存了旧脚本，请强制刷新）'));
-  add('CosmJS 签名库', !!window.CosmJSSigning, window.CosmJSSigning ? '已加载' : '未加载，无感签名无法工作');
-  add('加密库 noble', !!(window.nobleSecp && window.nobleSha256 && window.nobleRipemd160), '');
-  add('主钱包', !!(state.wallet && state.wallet.address), (state.wallet && state.wallet.address) || '未连接');
+  add(T('sc_build'), !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260929-3' ? '' : T('sc_build_old', r.build)));
+  add(T('sc_cosmjs'), !!window.CosmJSSigning, window.CosmJSSigning ? T('sc_loaded') : T('sc_notloaded'));
+  add(T('sc_noble'), !!(window.nobleSecp && window.nobleSha256 && window.nobleRipemd160), '');
+  add(T('sc_wallet'), !!(state.wallet && state.wallet.address), (state.wallet && state.wallet.address) || T('sc_notconnected'));
 
   let chainId = state.chainId;
   try { chainId = await fetchChainId(); } catch (e) {}
-  add('chainId', chainId === 'paxi-mainnet', chainId || '未知');
+  add(T('sc_chainid'), chainId === 'paxi-mainnet', chainId || T('sc_unknown'));
 
   let mgp = null;
   try { mgp = await fetchMinGasPrice(); } catch (e) {}
-  add('链上最低 gas 价', mgp >= 0.05, `${mgp} upaxi/gas（无感通道按此付费）`);
+  add(T('sc_mingas'), mgp >= 0.05, T('sc_mingas_detail', mgp));
 
   const plan = await computeSeamlessFee().catch(() => null);
-  add('单笔手续费', !!plan, plan ? `${plan.amount}${plan.denom} / gas ${plan.gasLimit}` : '计算失败');
+  add(T('sc_feerate'), !!plan, plan ? T('sc_feerate_detail', plan.amount, plan.denom, plan.gasLimit) : T('sc_calc_fail'));
 
-  add('本地会话密钥', !!state.sessPriv, state.sessPriv ? `地址 ${shortAddr(state.sessAddr, 10)}` : '无（将重新生成）');
+  add(T('sc_sesskey'), !!state.sessPriv, state.sessPriv ? T('sc_sesskey_detail', shortAddr(state.sessAddr, 10)) : T('sc_sesskey_none'));
 
   let info = null;
   try { info = await Session.syncFromChain(); } catch (e) {}
-  add('合约侧会话注册', !!(info && info.registered), info && info.registered
-    ? `已注册，公钥${info.pubMatches ? '匹配' : '❌不匹配'}，剩余 ${(((info.expiresAt || 0) - Date.now() / 1000) / 3600).toFixed(1)} 小时，nonce=${state.sessNonce}`
-    : '未注册，需要开启无感模式');
+  add(T('sc_sessreg'), !!(info && info.registered), info && info.registered
+    ? T('sc_sessreg_detail', info.pubMatches, (((info.expiresAt || 0) - Date.now() / 1000) / 3600).toFixed(1), state.sessNonce)
+    : T('sc_sessreg_none'));
 
   let bal = '0';
   try { bal = await Session.getSessionBalance(); } catch (e) {}
-  add('会话账户 PAXI 余额', null, `${fmtPaxi(bal)} PAXI（仅作兜底，正常由主钱包代付）`);
+  add(T('sc_sessbal'), null, T('sc_sessbal_detail', fmtPaxi(bal)));
 
   const fg = await Session.getFeegrant(true).catch(() => null);
-  add('链上 gas 代付授权(Feegrant)', !!(fg && fg.ok), fg
-    ? (fg.ok ? `有效，额度 ${fmtPaxi(fg.spendLimit)} PAXI，到期 ${new Date(fg.expiration).toLocaleString()}`
-             : `${fg.reason || '无效'}${fg.unknown ? '（查询失败，可能是网络问题）' : ''}`)
-    : '查询失败');
+  add(T('sc_feegrant'), !!(fg && fg.ok), fg
+    ? (fg.ok ? T('sc_fg_valid_detail', fmtPaxi(fg.spendLimit), new Date(fg.expiration).toLocaleString())
+             : `${fg.reason || T('sc_invalid')}${fg.unknown ? T('sc_fg_unknown') : ''}`)
+    : T('sc_fg_queryfail'));
 
-  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, reason: (e && e.message) || '异常' }));
-  add('无感通道最终判定', !!v.ok, v.ok
-    ? (v.mode === 'feegrant' ? '✅ 可用（主钱包代付 gas）' : '✅ 可用（会话余额自付 gas）')
-    : `❌ 不可用：${v.reason}`);
+  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, reason: (e && e.message) || T('sc_exception') }));
+  add(T('sc_verdict'), !!v.ok, v.ok
+    ? (v.mode === 'feegrant' ? T('sc_verdict_feegrant') : T('sc_verdict_selfpay'))
+    : T('sc_verdict_fail', v.reason));
 
-  if (Session._lastSeamlessError) add('上次无感失败原因', false, Session._lastSeamlessError);
+  if (Session._lastSeamlessError) add(T('sc_lasterr'), false, Session._lastSeamlessError);
   return r;
 };
 

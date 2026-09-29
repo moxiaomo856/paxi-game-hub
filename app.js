@@ -103,6 +103,66 @@ const HUB_I18N = {
     load_fail: '读取失败：',
     per_day: '日', rounds_unit: '局',
     reset_session_desc: '仅在 nonce 卡死或想换密钥时使用。清除后需重新注册会话。',
+    // —— 无感模式卡片（2026-09-29 补 i18n，原先为硬编码中文）——
+    seamless_title: '🔓 无感模式',
+    seamless_status: '状态',
+    seamless_feegrant: 'gas 代付授权',
+    seamless_bal: '会话余额',
+    seamless_expiry: '到期时间',
+    seamless_checking: '检测中…',
+    seamless_enable_btn: '开启无感模式（免密）',
+    seamless_renew_btn: '续期 / 重新授权无感模式',
+    seamless_selfcheck_btn: '🔍 无感自检（出问题先点这个）',
+    seamless_desc: '开启后游戏操作（抽卡 / 对战 / 迁移）不再弹钱包，gas 由主钱包代付 7 天；若代付授权不可用，会话账户会用自带的 PAXI 余额付费，同样免密。充值 / 提现 / 管理员操作不受影响。',
+    seamless_st_ok: '正常（免密可用）',
+    seamless_st_off: '未开启 / 已过期',
+    seamless_st_expiring: '即将到期',
+    seamless_st_nogas: '会话有效，但无法付 gas',
+    seamless_fg_valid: '有效',
+    seamless_fg_queryfail: '查询失败',
+    seamless_fg_none: '未授权 / 已过期',
+    seamless_hours: (h) => `${h} 小时后`,
+    seamless_fg_detail: (amt) => `（额度 ${amt} PAXI，主钱包代付）`,
+    seamless_bal_detail: (bal, per) => `${bal} PAXI（每笔约 ${per}）`,
+    seamless_bal_plain: (bal) => `${bal} PAXI`,
+    seamless_busy: '授权中…（只需在钱包确认 1 次）',
+    seamless_ok_toast: '无感模式已开启，之后游戏操作不再弹钱包',
+    seamless_fail_toast: '开通失败',
+    seamless_checkfail: (m) => `自检失败：${m}`,
+    // —— 无感自检条目（session.js selfCheck 用，原先为硬编码中文）——
+    sc_unknown: '未知',
+    sc_build: '页面版本 build',
+    sc_build_old: (b) => `${b}（⚠️ 不是最新版，浏览器可能缓存了旧脚本，请强制刷新）`,
+    sc_cosmjs: 'CosmJS 签名库',
+    sc_loaded: '已加载', sc_notloaded: '未加载，无感签名无法工作',
+    sc_noble: '加密库 noble',
+    sc_wallet: '主钱包', sc_notconnected: '未连接',
+    sc_chainid: 'chainId',
+    sc_mingas: '链上最低 gas 价',
+    sc_mingas_detail: (g) => `${g} upaxi/gas（无感通道按此付费）`,
+    sc_feerate: '单笔手续费',
+    sc_feerate_detail: (a, d, g) => `${a}${d} / gas ${g}`,
+    sc_calc_fail: '计算失败',
+    sc_sesskey: '本地会话密钥',
+    sc_sesskey_detail: (a) => `地址 ${a}`, sc_sesskey_none: '无（将重新生成）',
+    sc_sessreg: '合约侧会话注册',
+    sc_sessreg_detail: (m, h, n) => `已注册，公钥${m ? '匹配' : '❌不匹配'}，剩余 ${h} 小时，nonce=${n}`,
+    sc_sessreg_none: '未注册，需要开启无感模式',
+    sc_sessbal: '会话账户 PAXI 余额',
+    sc_sessbal_detail: (b) => `${b} PAXI（仅作兜底，正常由主钱包代付）`,
+    sc_feegrant: '链上 gas 代付授权(Feegrant)',
+    sc_fg_valid_detail: (s, e) => `有效，额度 ${s} PAXI，到期 ${e}`,
+    sc_invalid: '无效',
+    sc_fg_unknown: '（查询失败，可能是网络问题）',
+    sc_fg_queryfail: '查询失败',
+    sc_verdict: '无感通道最终判定',
+    sc_verdict_feegrant: '✅ 可用（主钱包代付 gas）',
+    sc_verdict_selfpay: '✅ 可用（会话余额自付 gas）',
+    sc_verdict_fail: (r) => `❌ 不可用：${r}`,
+    sc_lasterr: '上次无感失败原因',
+    sc_exception: '异常',
+    acc_build_unknown: '未知（旧版缓存）',
+    seamless_check_failed: '检查失败',
     // —— 游戏页 ——
     result_title: '🎰 结果', result_placeholder: '下注后显示结果',
     // —— 本局链上明细（2026-09-28 新增：解释"钱包只显示其中一条转账"）——
@@ -221,6 +281,66 @@ const HUB_I18N = {
     load_fail: 'Load failed: ',
     per_day: '/day', rounds_unit: ' rounds',
     reset_session_desc: 'Only use when the nonce is stuck or you want new keys. You must re-register the session afterwards.',
+    // —— seamless mode card (added 2026-09-29; previously hardcoded Chinese) ——
+    seamless_title: '🔓 Seamless Mode',
+    seamless_status: 'Status',
+    seamless_feegrant: 'Gas Sponsorship',
+    seamless_bal: 'Session Balance',
+    seamless_expiry: 'Expires',
+    seamless_checking: 'Checking…',
+    seamless_enable_btn: 'Enable Seamless Mode (no password)',
+    seamless_renew_btn: 'Renew / Re-authorize Seamless',
+    seamless_selfcheck_btn: '🔍 Seamless Self-Check (try this first)',
+    seamless_desc: 'Once enabled, game actions (draw / battle / migrate) no longer prompt the wallet — gas is paid by your main wallet for 7 days. If sponsorship is unavailable, the session account pays from its own PAXI balance, still without prompts. Deposit / withdraw / admin actions are unaffected.',
+    seamless_st_ok: 'OK (no password needed)',
+    seamless_st_off: 'Not enabled / expired',
+    seamless_st_expiring: 'Expiring soon',
+    seamless_st_nogas: 'Session valid, but cannot pay gas',
+    seamless_fg_valid: 'Valid',
+    seamless_fg_queryfail: 'Query failed',
+    seamless_fg_none: 'Not authorized / expired',
+    seamless_hours: (h) => `in ${h} hours`,
+    seamless_fg_detail: (amt) => `(limit ${amt} PAXI, paid by main wallet)`,
+    seamless_bal_detail: (bal, per) => `${bal} PAXI (~${per} per tx)`,
+    seamless_bal_plain: (bal) => `${bal} PAXI`,
+    seamless_busy: 'Authorizing… (confirm once in wallet)',
+    seamless_ok_toast: 'Seamless mode enabled — game actions no longer prompt the wallet',
+    seamless_fail_toast: 'Failed to enable',
+    seamless_checkfail: (m) => `Self-check failed: ${m}`,
+    // —— seamless self-check items (used by session.js selfCheck; previously hardcoded Chinese) ——
+    sc_unknown: 'Unknown',
+    sc_build: 'Page build',
+    sc_build_old: (b) => `${b} (⚠️ not the latest — the browser may have cached old scripts, force refresh)`,
+    sc_cosmjs: 'CosmJS signing lib',
+    sc_loaded: 'Loaded', sc_notloaded: 'Not loaded — seamless signing will not work',
+    sc_noble: 'noble crypto lib',
+    sc_wallet: 'Main wallet', sc_notconnected: 'Not connected',
+    sc_chainid: 'chainId',
+    sc_mingas: 'On-chain min gas price',
+    sc_mingas_detail: (g) => `${g} upaxi/gas (seamless channel pays this)`,
+    sc_feerate: 'Fee per tx',
+    sc_feerate_detail: (a, d, g) => `${a}${d} / gas ${g}`,
+    sc_calc_fail: 'Calculation failed',
+    sc_sesskey: 'Local session key',
+    sc_sesskey_detail: (a) => `address ${a}`, sc_sesskey_none: 'None (will regenerate)',
+    sc_sessreg: 'On-chain session registration',
+    sc_sessreg_detail: (m, h, n) => `Registered, pubkey ${m ? 'matches' : '❌ mismatch'}, ${h} hours left, nonce=${n}`,
+    sc_sessreg_none: 'Not registered — enable seamless mode',
+    sc_sessbal: 'Session account PAXI balance',
+    sc_sessbal_detail: (b) => `${b} PAXI (fallback only; normally paid by main wallet)`,
+    sc_feegrant: 'On-chain gas sponsorship (Feegrant)',
+    sc_fg_valid_detail: (s, e) => `Valid, limit ${s} PAXI, expires ${e}`,
+    sc_invalid: 'Invalid',
+    sc_fg_unknown: '(query failed, possibly a network issue)',
+    sc_fg_queryfail: 'Query failed',
+    sc_verdict: 'Seamless channel verdict',
+    sc_verdict_feegrant: '✅ Available (gas paid by main wallet)',
+    sc_verdict_selfpay: '✅ Available (gas paid by session balance)',
+    sc_verdict_fail: (r) => `❌ Unavailable: ${r}`,
+    sc_lasterr: 'Last seamless failure reason',
+    sc_exception: 'Exception',
+    acc_build_unknown: 'Unknown (cached old version)',
+    seamless_check_failed: 'Check failed',
     // —— game page ——
     result_title: '🎰 Result', result_placeholder: 'Result shows after betting',
     bd_title: '🧾 On-chain breakdown',
@@ -445,16 +565,20 @@ function switchTab(tab) {
 
 // ============================================================
 // 大厅展示名单与顺序（2026-09-28：卡牌两个变体隐藏，猜数字保持显示）
-//   2026-09-29：轮盘 roulette / roulette_vip 重新放出（用户要看效果）
-//   顺序：三国 → 抽奖 → 骰宝 → 轮盘·经典 → 轮盘·VIP → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
-//   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）。
+//   2026-09-29：轮盘 roulette / roulette_vip 曾短暂放出看效果，现按用户要求重新注释掉。
+//   顺序：三国 → 抽奖 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
+//   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）、
+//   轮盘 roulette / roulette_vip（2026-09-29 起隐藏）。
 //   ⚠️ 注意：只有链上 list_games 已注册 game_id 的才能放出来，
 //      否则 openGame 会在 game_engine_config_query / game_limit 处报「未配置」。
 //      当前链上已注册 8 个：card_rank, card_vs_dealer, crazydice, dice,
 //      guess, guess_elite, roulette, roulette_vip。
 //   想增删游戏：改这个数组即可，顺序即大厅卡片顺序（链上游戏仍在，随时可放回）。
 // ============================================================
-const HUB_VISIBLE_GAMES = ['sanguo', 'choujiang', 'dice', 'roulette', 'roulette_vip', 'guess', 'guess_elite', 'crazydice'];
+const HUB_VISIBLE_GAMES = [
+  'sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice',
+  // 'roulette', 'roulette_vip',   // 轮盘（2026-09-29 隐藏；需要时取消注释即可恢复）
+];
 
 // ============================================================
 // 外部跳转类「游戏」：不走链上引擎，点击直接开外链（不依赖合约、不用会话密钥）
@@ -894,23 +1018,19 @@ function renderMe() {
       <div class="kv"><span class="k">${hubT('acc_wallet_addr')}</span><span class="v">${shortAddr(state.wallet?.address, 8) || '—'}</span></div>
       <div class="kv"><span class="k">${hubT('acc_sess_addr')}</span><span class="v">${shortAddr(state.sessAddr, 8) || '—'}</span></div>
       <div class="kv"><span class="k">${hubT('acc_chain_id')}</span><span class="v">${state.chainId || '—'}</span></div>
-      <div class="desc" style="margin-top:6px;opacity:.6">build ${window.HUB_BUILD || '未知（旧版缓存）'}</div>
+      <div class="desc" style="margin-top:6px;opacity:.6">build ${window.HUB_BUILD || hubT('acc_build_unknown')}</div>
     </div>
 
     <div class="card">
-      <div class="card-title">🔓 无感模式</div>
-      <div class="kv"><span class="k">状态</span><span class="v" id="seamlessStatus">检测中…</span></div>
-      <div class="kv"><span class="k">gas 代付授权</span><span class="v" id="seamlessFeegrant">检测中…</span></div>
-      <div class="kv"><span class="k">会话余额</span><span class="v" id="seamlessBal">检测中…</span></div>
-      <div class="kv"><span class="k">到期时间</span><span class="v" id="seamlessExpiry">—</span></div>
-      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">开启无感模式（免密）</button>
-      <button class="btn btn-ghost" id="btnSelfCheck" style="margin-top:8px">🔍 无感自检（出问题先点这个）</button>
+      <div class="card-title">${hubT('seamless_title')}</div>
+      <div class="kv"><span class="k">${hubT('seamless_status')}</span><span class="v" id="seamlessStatus">${hubT('seamless_checking')}</span></div>
+      <div class="kv"><span class="k">${hubT('seamless_feegrant')}</span><span class="v" id="seamlessFeegrant">${hubT('seamless_checking')}</span></div>
+      <div class="kv"><span class="k">${hubT('seamless_bal')}</span><span class="v" id="seamlessBal">${hubT('seamless_checking')}</span></div>
+      <div class="kv"><span class="k">${hubT('seamless_expiry')}</span><span class="v" id="seamlessExpiry">—</span></div>
+      <button class="btn btn-primary" id="btnSeamless" style="margin-top:10px">${hubT('seamless_enable_btn')}</button>
+      <button class="btn btn-ghost" id="btnSelfCheck" style="margin-top:8px">${hubT('seamless_selfcheck_btn')}</button>
       <div id="selfCheckBox" style="display:none;margin-top:10px"></div>
-      <div class="desc" style="margin-top:8px">
-        开启后游戏操作（抽卡 / 对战 / 迁移）不再弹钱包，gas 由主钱包代付 7 天；
-        若代付授权不可用，会话账户会用自带的 PAXI 余额付费，同样免密。
-        充值 / 提现 / 管理员操作不受影响。
-      </div>
+      <div class="desc" style="margin-top:8px">${hubT('seamless_desc')}</div>
     </div>
 
     <div class="card">
@@ -953,7 +1073,7 @@ async function renderSeamlessCard() {
   if (!btn) return;
 
   // 🟢 第十八轮：状态一律以链上为准（会话注册 + Feegrant 授权 + 会话余额）
-  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, mode: 'none', reason: (e && e.message) || '检查失败' }));
+  const v = await Session.verifySeamless(true).catch((e) => ({ ok: false, mode: 'none', reason: (e && e.message) || hubT('seamless_check_failed') }));
   const info = await Session.syncFromChain().catch(() => null);
   const fg = await Session.getFeegrant(true).catch(() => null);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -962,25 +1082,25 @@ async function renderSeamlessCard() {
 
   // 会话状态
   if (!sessionOk) {
-    $('seamlessStatus').innerHTML = '<span class="warn-txt">未开启 / 已过期</span>';
+    $('seamlessStatus').innerHTML = `<span class="warn-txt">${hubT('seamless_st_off')}</span>`;
     $('seamlessExpiry').textContent = '—';
   } else if (hoursLeft < 2) {
-    $('seamlessStatus').innerHTML = '<span class="warn-txt">即将到期</span>';
-    $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
+    $('seamlessStatus').innerHTML = `<span class="warn-txt">${hubT('seamless_st_expiring')}</span>`;
+    $('seamlessExpiry').textContent = hubT('seamless_hours')(hoursLeft.toFixed(1));
   } else {
     $('seamlessStatus').innerHTML = v.ok
-      ? '<span class="ok-txt">正常（免密可用）</span>'
-      : '<span class="warn-txt">会话有效，但无法付 gas</span>';
-    $('seamlessExpiry').textContent = `${hoursLeft.toFixed(1)} 小时后`;
+      ? `<span class="ok-txt">${hubT('seamless_st_ok')}</span>`
+      : `<span class="warn-txt">${hubT('seamless_st_nogas')}</span>`;
+    $('seamlessExpiry').textContent = hubT('seamless_hours')(hoursLeft.toFixed(1));
   }
 
   // gas 代付授权（链上真实查询）
   if (fg && fg.ok) {
-    $('seamlessFeegrant').innerHTML = `<span class="ok-txt">有效</span>（额度 ${Session.fmtPaxi(fg.spendLimit)} PAXI，主钱包代付）`;
+    $('seamlessFeegrant').innerHTML = `<span class="ok-txt">${hubT('seamless_fg_valid')}</span>${hubT('seamless_fg_detail')(Session.fmtPaxi(fg.spendLimit))}`;
   } else if (fg && fg.unknown) {
-    $('seamlessFeegrant').innerHTML = `<span class="warn-txt">查询失败</span>`;
+    $('seamlessFeegrant').innerHTML = `<span class="warn-txt">${hubT('seamless_fg_queryfail')}</span>`;
   } else {
-    $('seamlessFeegrant').innerHTML = '<span class="warn-txt">未授权 / 已过期</span>';
+    $('seamlessFeegrant').innerHTML = `<span class="warn-txt">${hubT('seamless_fg_none')}</span>`;
   }
 
   // 会话账户余额（Feegrant 不可用时的兜底付费方）
@@ -988,19 +1108,19 @@ async function renderSeamlessCard() {
   try { bal = await Session.getSessionBalance(); } catch (e) {}
   const plan = await computeSeamlessFee().catch(() => null);
   $('seamlessBal').textContent = plan
-    ? `${Session.fmtPaxi(bal)} PAXI（每笔约 ${Session.fmtPaxi(plan.amount)}）`
-    : `${Session.fmtPaxi(bal)} PAXI`;
+    ? hubT('seamless_bal_detail')(Session.fmtPaxi(bal), Session.fmtPaxi(plan.amount))
+    : hubT('seamless_bal_plain')(Session.fmtPaxi(bal));
 
-  btn.textContent = sessionOk ? '续期 / 重新授权无感模式' : '开启无感模式（免密）';
+  btn.textContent = sessionOk ? hubT('seamless_renew_btn') : hubT('seamless_enable_btn');
 
   btn.onclick = async () => {
-    showBusy('授权中…（只需在钱包确认 1 次）');
+    showBusy(hubT('seamless_busy'));
     try {
       await Session.enableSeamlessMode();
-      showToast('无感模式已开启，之后游戏操作不再弹钱包', 'success');
+      showToast(hubT('seamless_ok_toast'), 'success');
       await renderSeamlessCard();
     } catch (e) {
-      showToast((e && e.message) || '开通失败', 'error');
+      showToast((e && e.message) || hubT('seamless_fail_toast'), 'error');
     } finally { hideBusy(); }
   };
 
@@ -1008,7 +1128,7 @@ async function renderSeamlessCard() {
   if (sc) sc.onclick = async () => {
     const box = $('selfCheckBox');
     box.style.display = 'block';
-    box.innerHTML = '<div class="desc">检测中…</div>';
+    box.innerHTML = `<div class="desc">${hubT('seamless_checking')}</div>`;
     try {
       const r = await Session.selfCheck();
       const icon = { ok: '✅', warn: '⚠️', fail: '❌' };
@@ -1019,7 +1139,7 @@ async function renderSeamlessCard() {
            </div>`).join('');
       console.log('[无感自检]', r);
     } catch (e) {
-      box.innerHTML = `<div class="desc" style="color:#c0392b">自检失败：${(e && e.message) || e}</div>`;
+      box.innerHTML = `<div class="desc" style="color:#c0392b">${hubT('seamless_checkfail')((e && e.message) || e)}</div>`;
     }
   };
 }
