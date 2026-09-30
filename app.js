@@ -566,7 +566,7 @@ function switchTab(tab) {
 // ============================================================
 // 大厅展示名单与顺序（2026-09-28：卡牌两个变体隐藏，猜数字保持显示）
 //   2026-09-29：轮盘 roulette / roulette_vip 曾短暂放出看效果，现按用户要求重新注释掉。
-//   顺序：三国 → 抽奖 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
+//   顺序：三国 → 抽奖双币 → 抽奖单币 → 骰宝 → 猜数字·经典 → 猜数字·精英 → 疯狂骰子
 //   未列入的 id 一律不显示：卡牌 card_rank / card_vs_dealer（2026-09-28 起隐藏）、
 //   轮盘 roulette / roulette_vip（2026-09-29 起隐藏）。
 //   ⚠️ 注意：只有链上 list_games 已注册 game_id 的才能放出来，
@@ -576,7 +576,7 @@ function switchTab(tab) {
 //   想增删游戏：改这个数组即可，顺序即大厅卡片顺序（链上游戏仍在，随时可放回）。
 // ============================================================
 const HUB_VISIBLE_GAMES = [
-  'sanguo', 'choujiang', 'dice', 'guess', 'guess_elite', 'crazydice',
+  'sanguo', 'choujiang', 'choujiang_dan', 'dice', 'guess', 'guess_elite', 'crazydice',
   // 'roulette', 'roulette_vip',   // 轮盘（2026-09-29 隐藏；需要时取消注释即可恢复）
 ];
 
@@ -586,14 +586,25 @@ const HUB_VISIBLE_GAMES = [
 //   字段：meta.id / meta.name{zh,en} / meta.icon / meta.desc{zh,en} / meta.type='link' / href
 // ============================================================
 const HUB_LINK_GAMES = {
+  // 🟢 2026-09-30：原「抽奖」改为「抽奖双币」（新部署的 choujiang2），另新增「抽奖单币」入口。
   choujiang: {
-    href: 'https://moxiaomo856.github.io/paxi-choujiang/',
+    href: 'https://moxiaomo856.github.io/paxi-choujiang2/',
     meta: {
       id: 'choujiang',
       type: 'link',
       icon: '🎁',
-      name: { zh: '抽奖', en: 'Lucky Draw' },
-      desc: { zh: '跳转抽奖 DApp', en: 'Open the lucky-draw DApp' },
+      name: { zh: '抽奖双币', en: 'Lottery · Dual' },
+      desc: { zh: 'PAXI + TKCC 双币抽奖 DApp', en: 'Dual-token (PAXI + TKCC) lottery DApp' },
+    },
+  },
+  choujiang_dan: {
+    href: 'https://moxiaomo856.github.io/paxi-choujiang-danbi/',
+    meta: {
+      id: 'choujiang_dan',
+      type: 'link',
+      icon: '🎟️',
+      name: { zh: '抽奖单币', en: 'Lottery · Single' },
+      desc: { zh: '单币种抽奖 DApp', en: 'Single-token lottery DApp' },
     },
   },
 };

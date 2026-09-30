@@ -908,7 +908,7 @@ Session.selfCheck = async function () {
   const r = { build: (typeof window !== 'undefined' && window.HUB_BUILD) || T('sc_unknown'), items: [] };
   const add = (name, ok, detail) => r.items.push({ name, ok: ok === null ? 'warn' : (ok ? 'ok' : 'fail'), detail });
 
-  add(T('sc_build'), !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260929-4' ? '' : T('sc_build_old', r.build)));
+  add(T('sc_build'), !!window.HUB_BUILD, r.build + (window.HUB_BUILD === '20260930-1' ? '' : T('sc_build_old', r.build)));
   add(T('sc_cosmjs'), !!window.CosmJSSigning, window.CosmJSSigning ? T('sc_loaded') : T('sc_notloaded'));
   add(T('sc_noble'), !!(window.nobleSecp && window.nobleSha256 && window.nobleRipemd160), '');
   add(T('sc_wallet'), !!(state.wallet && state.wallet.address), (state.wallet && state.wallet.address) || T('sc_notconnected'));
